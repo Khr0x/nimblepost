@@ -1,0 +1,88 @@
+name: Changesets releases
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/ci.yml
+
+  version:
+    name: Prepare Changesets version PR
+    needs: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      RUSTUP_TOOLCHAIN: '1.96.1'
+    outputs:
+      pending: ${{ steps.batch.outputs.pending }}
+      version: ${{ steps.batch.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Identify a merged version-only release
+        id: batch
+        if: github.event_name == 'push'
+        env:
+          BASE_SHA: ${{ github.event.before }}
+        run: node scripts/changesets.mjs batch "$BASE_SHA"
+
+      - name: Install Rust for version synchronization
+        if: github.event_name == 'push' && steps.batch.outputs.pending != 'true'
+        run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
+
+      - name: Create a scoped GitHub App token when configured
+        id: app-token
+        if: github.event_name == 'push' && steps.batch.outputs.pending != 'true' && vars.RELEASE_APP_ID != ''
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3, same as Fevex
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Create or update the version PR
+        if: github.event_name == 'push' && steps.batch.outputs.pending != 'true'
+        uses: changesets/action@8488615a623b1b9c987934bb89eae8af6a946ac1 # v2.1.1, Changesets CLI 3
+        with:
+          github-token: ${{ steps.app-token.outputs.token || github.token }}
+          version-script: npm run ci:version
+          pr-title: 'chore: release NimblePost'
+          commit-message: 'chore: release NimblePost'
+          create-github-releases: false
+
+  macos:
+    name: Release verified macOS build
+    needs: [validate, version]
+    if: github.event_name == 'push' && needs.version.outputs.pending == 'true'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release-macos.yml
+    with:
+      version: ${{ needs.version.outputs.version }}

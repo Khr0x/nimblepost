@@ -13,7 +13,7 @@
 
 <p>
   <a href="https://github.com/Khr0x/nimblepost/actions/workflows/ci.yml"><img src="https://github.com/Khr0x/nimblepost/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
-  <img src="https://img.shields.io/badge/status-alpha%200.1.0-10b981?style=flat-square&amp;labelColor=27272a" alt="Status: alpha 0.1.0">
+  <img src="https://img.shields.io/badge/status-alpha-10b981?style=flat-square&amp;labelColor=27272a" alt="Status: alpha">
   <img src="https://img.shields.io/badge/Tauri-2-27272a?style=flat-square" alt="Tauri 2">
   <img src="https://img.shields.io/badge/Svelte-5-27272a?style=flat-square" alt="Svelte 5">
   <img src="https://img.shields.io/badge/core-Rust-27272a?style=flat-square" alt="Rust core">
@@ -31,7 +31,7 @@
 NimblePost keeps your collections in your own folders, with a desktop app built
 on Tauri and Svelte and a Rust engine shared by the desktop app and CLI.
 
-**Status: ALPHA · 0.1.0.** The HTTP/HTTPS workflow is functional and under active
+**Status: ALPHA.** The HTTP/HTTPS workflow is functional and under active
 development. Native release validation on Windows and Linux, and performance
 benchmarks, are still pending.
 
@@ -138,11 +138,17 @@ not implemented yet.
 
 ## macOS ALPHA releases
 
-Pushing an ALPHA tag such as `v0.1.0-alpha.1` runs the same CI checks first. If
-they pass, the release workflow builds a universal macOS app for Apple Silicon
-and Intel, packages a DMG and prepares a **draft prerelease** on GitHub. Review
-the workflow results and test the downloaded app before publishing the draft.
-The tag's base version must match the app version in the repository.
+Releases use Changesets. Run `npm run changeset` with a user-facing change and
+commit the generated release note alongside it. After the changes reach `main`,
+automation opens or updates a version PR with the changelog and synchronized
+desktop, Tauri and Rust versions.
+
+Merging that version PR runs CI, builds a universal macOS app for Apple Silicon
+and Intel, and verifies its signature and DMG. It then creates the version tag
+and publishes the GitHub prerelease with the installer and release notes.
+Tags are generated automatically; ordinary source pushes only update the
+version PR. The [release guide](.changeset/README.md) covers the one-time GitHub
+setup and local checks.
 
 The build uses ad-hoc signing without an Apple Developer ID certificate or
 notarization. macOS may block the first launch; after attempting to open the
