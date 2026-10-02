@@ -2,15 +2,21 @@
   "name": "nimblepost",
   "private": true,
   "type": "module",
-  "workspaces": ["apps/desktop"],
+  "workspaces": [
+    "apps/desktop"
+  ],
   "scripts": {
-    "test": "node --test tests/*.test.mjs apps/desktop/tests/unit/*.test.mjs",
+    "changeset": "changeset",
+    "ci:version": "node scripts/changesets.mjs version",
+    "release:check": "node scripts/changesets.mjs check",
+    "test": "node --test tests/*.test.mjs apps/desktop/tests/unit/*.test.mjs scripts/*.test.mjs",
     "desktop:dev": "npm run tauri --workspace @nimblepost/desktop -- dev",
     "desktop:build": "npm run tauri --workspace @nimblepost/desktop -- build --no-bundle",
     "check": "npm run check --workspace @nimblepost/desktop",
     "build": "npm run build --workspace @nimblepost/desktop"
   },
   "devDependencies": {
+    "@changesets/cli": "3.0.1",
     "ajv": "8.20.0",
     "yaml": "2.9.1"
   }
