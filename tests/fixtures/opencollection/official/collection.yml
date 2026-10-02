@@ -1,0 +1,15 @@
+opencollection: "1.0.0"
+
+info:
+  name: My API Collection
+  summary: A collection of API requests
+  version: "1.0.0"
+
+config:
+  environments: []
+
+items: []
+
+request: {}
+
+docs: Documentation for this collection

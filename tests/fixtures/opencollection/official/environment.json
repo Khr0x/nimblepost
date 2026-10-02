@@ -1,0 +1,15 @@
+{
+  "name": "Production",
+  "description": "Production environment configuration",
+  "variables": [
+    {
+      "name": "baseUrl",
+      "value": "https://api.production.com"
+    },
+    {
+      "name": "apiKey",
+      "value": "prod-key-123",
+      "transient": true
+    }
+  ]
+}

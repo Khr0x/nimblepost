@@ -1,0 +1,22 @@
+opencollection: "1.0.0"
+info:
+  name: NimblePost HTTP Example
+  version: "1.0.0"
+bundled: false
+request:
+  headers:
+    - name: Accept
+      value: application/json
+  variables:
+    - name: baseUrl
+      value: http://127.0.0.1:3000
+  settings:
+    http:
+      timeout: 30000
+      followRedirects: true
+      forwardAuthorizationHeader: false
+extensions:
+  nimblepost:
+    contractVersion: 1
+  other-client:
+    preserved: true

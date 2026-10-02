@@ -1,0 +1,21 @@
+[package]
+name = "nimblepost-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Local-first OpenCollection HTTP execution engine"
+
+[dependencies]
+base64.workspace = true
+jsonschema.workspace = true
+reqwest.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+yaml-rust2.workspace = true
+yaml-edit.workspace = true
+tempfile.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["signal"] }

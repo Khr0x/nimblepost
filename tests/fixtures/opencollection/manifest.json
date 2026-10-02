@@ -1,0 +1,122 @@
+{
+  "schema": {
+    "path": "schemas/opencollection/1.0.0/opencollection.schema.json",
+    "formatVersion": "1.0.0",
+    "packageVersion": "0.14.0",
+    "commit": "535a5c5803da7a3fe1d575fff23350b4a7c43c6a",
+    "sourceUrl": "https://github.com/opencollection-dev/opencollection/blob/535a5c5803da7a3fe1d575fff23350b4a7c43c6a/packages/oc-schema/src/opencollection.schema.json",
+    "sha256": "b9cd299f4d2345036b48a94fc5675393b1f1f10b58403ed2b6288f6e609579e6"
+  },
+  "fixtures": [
+    {
+      "path": "official/collection.yml",
+      "sourceUrl": "https://github.com/opencollection-dev/opencollection/blob/535a5c5803da7a3fe1d575fff23350b4a7c43c6a/packages/oc-spec-site/src/components/sections/Collection.jsx",
+      "commit": "535a5c5803da7a3fe1d575fff23350b4a7c43c6a",
+      "sha256": "b0731777f547743913594919628bd56a5f6c4b5df299ffc7e447cb72d4f7e9a2",
+      "definition": null,
+      "schemaValid": true,
+      "extraction": "Contenido literal del primer const example; no modificado."
+    },
+    {
+      "path": "official/httprequest.yml",
+      "sourceUrl": "https://github.com/opencollection-dev/opencollection/blob/535a5c5803da7a3fe1d575fff23350b4a7c43c6a/packages/oc-spec-site/src/components/sections/HttpRequest.jsx",
+      "commit": "535a5c5803da7a3fe1d575fff23350b4a7c43c6a",
+      "sha256": "1ff565059d31304f7d87054d93e5fed10f8fa198f30d0028d932b5d431621aff",
+      "definition": "HttpRequest",
+      "schemaValid": true,
+      "extraction": "Contenido literal del primer const example; no modificado."
+    },
+    {
+      "path": "official/environment.json",
+      "sourceUrl": "https://github.com/opencollection-dev/opencollection/blob/535a5c5803da7a3fe1d575fff23350b4a7c43c6a/packages/oc-spec-site/src/components/sections/Environments.jsx",
+      "commit": "535a5c5803da7a3fe1d575fff23350b4a7c43c6a",
+      "sha256": "ec07c816b8259c1c56b58e1ad52587c2ca195574afcd66579ddd66a2b27e1c53",
+      "definition": "Environment",
+      "schemaValid": false,
+      "expectedIssues": [
+        {
+          "instancePath": "/variables/1",
+          "keyword": "additionalProperties",
+          "property": "transient"
+        }
+      ],
+      "extraction": "Transcripci\u00f3n del objeto const example a JSON (subconjunto de YAML); conserva todos sus valores y campos."
+    },
+    {
+      "path": "bruno/opencollection.yml",
+      "sourceUrl": "https://github.com/usebruno/bruno/blob/bc90e46b288446ebe0c8d67b28470d2efc0a8c48/packages/bruno-cli/tests/runner/fixtures/opencollection/collection/opencollection.yml",
+      "commit": "bc90e46b288446ebe0c8d67b28470d2efc0a8c48",
+      "sha256": "7efc308e7b0a0cf0c5113f2ee52f3e83e9341b70aab86eb66bd2020f0a68b778",
+      "definition": null,
+      "schemaValid": false,
+      "expectedIssues": [
+        {
+          "instancePath": "/request/headers/0",
+          "keyword": "additionalProperties",
+          "property": "enabled"
+        }
+      ]
+    },
+    {
+      "path": "bruno/get-users.yml",
+      "sourceUrl": "https://github.com/usebruno/bruno/blob/bc90e46b288446ebe0c8d67b28470d2efc0a8c48/packages/bruno-cli/tests/runner/fixtures/opencollection/collection/get-users.yml",
+      "commit": "bc90e46b288446ebe0c8d67b28470d2efc0a8c48",
+      "sha256": "012c143dcd662307c9b37d740226d49b00fbbb514e306e704f4c1b21f081fbb6",
+      "definition": "HttpRequest",
+      "schemaValid": true
+    },
+    {
+      "path": "bruno/environments/dev.yml",
+      "sourceUrl": "https://github.com/usebruno/bruno/blob/bc90e46b288446ebe0c8d67b28470d2efc0a8c48/packages/bruno-cli/tests/runner/fixtures/opencollection/collection/environments/dev.yml",
+      "commit": "bc90e46b288446ebe0c8d67b28470d2efc0a8c48",
+      "sha256": "1cfa94fa0f405209fcad34d56f865bc2b282d45f5d84dfbf7f27e738c2bdbde8",
+      "definition": "Environment",
+      "schemaValid": true
+    },
+    {
+      "path": "bruno/users/folder.yml",
+      "sourceUrl": "https://github.com/usebruno/bruno/blob/bc90e46b288446ebe0c8d67b28470d2efc0a8c48/packages/bruno-cli/tests/runner/fixtures/opencollection/collection/users/folder.yml",
+      "commit": "bc90e46b288446ebe0c8d67b28470d2efc0a8c48",
+      "sha256": "d00d310f689f965ae70c642f2a69cbfe6af622b52e78f63686e1438212edc170",
+      "definition": "Folder",
+      "schemaValid": true
+    },
+    {
+      "path": "bruno/users/create-user.yml",
+      "sourceUrl": "https://github.com/usebruno/bruno/blob/bc90e46b288446ebe0c8d67b28470d2efc0a8c48/packages/bruno-cli/tests/runner/fixtures/opencollection/collection/users/create-user.yml",
+      "commit": "bc90e46b288446ebe0c8d67b28470d2efc0a8c48",
+      "sha256": "c053850bb048a94e8e7f45a83656e8d25bc7074361946b538b3f6222df4368f4",
+      "definition": "HttpRequest",
+      "schemaValid": false,
+      "expectedIssues": [
+        {
+          "instancePath": "/http/body",
+          "keyword": "additionalProperties",
+          "property": "mode"
+        }
+      ]
+    }
+  ],
+  "examples": [
+    {
+      "path": "examples/basic-http/opencollection.yml",
+      "definition": null
+    },
+    {
+      "path": "examples/basic-http/environments/local.yml",
+      "definition": "Environment"
+    },
+    {
+      "path": "examples/basic-http/users/folder.yml",
+      "definition": "Folder"
+    },
+    {
+      "path": "examples/basic-http/users/list.yml",
+      "definition": "HttpRequest"
+    },
+    {
+      "path": "examples/basic-http/users/create.yml",
+      "definition": "HttpRequest"
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+name: local
+variables:
+  - name: baseUrl
+    value: http://127.0.0.1:3000
+  - name: token
+    secret: true
+    type: string

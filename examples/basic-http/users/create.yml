@@ -1,0 +1,17 @@
+info:
+  name: Create User
+  type: http
+  seq: 2
+http:
+  method: POST
+  url: "{{baseUrl}}/users"
+  headers:
+    - name: Content-Type
+      value: application/json
+  auth:
+    type: bearer
+    token: "{{token}}"
+  body:
+    type: json
+    data: |
+      {"name":"Ada"}

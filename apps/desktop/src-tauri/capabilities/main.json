@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main",
+  "description": "Local app window; no generic filesystem, shell or HTTP plugins",
+  "windows": ["main"],
+  "permissions": ["core:default", "core:window:allow-destroy", "core:window:allow-set-theme", "core:window:allow-start-dragging", "core:window:allow-toggle-maximize"]
+}

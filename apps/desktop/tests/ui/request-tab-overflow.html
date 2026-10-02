@@ -1,0 +1,41 @@
+<!doctype html><html lang="en"><meta charset="UTF-8"><div id="app"></div><script type="module">
+// Run with desktop Vite: /tests/ui/request-tab-overflow.html. All storage is in memory.
+import { mockIPC } from '@tauri-apps/api/mocks';
+const collection={name:'Team API',root:'/tmp/tab-overflow-test',requests:[],folders:[],environments:[],readOnly:false};
+mockIPC(cmd=>{
+ if(cmd==='read_workspace')return {workspaces:[{id:1,name:'My Workspace'}],activeWorkspaceId:1,activeCollection:collection.root,collections:[collection],warning:null};
+ if(cmd==='read_history')return {entries:[],warning:null};
+ throw new Error(`Unexpected command ${cmd}`);
+});
+await import('/src/main.ts');
+const assert=(condition,message)=>{if(!condition)throw new Error(message);};
+async function until(predicate){const deadline=Date.now()+5000;while(!predicate()){if(Date.now()>deadline)throw new Error('UI did not reach expected state');await new Promise(requestAnimationFrame);}}
+const button=name=>document.querySelector(`button[aria-label="${name}"]`);
+async function click(name){assert(button(name),`Missing button ${name}`);button(name).click();await new Promise(requestAnimationFrame);}
+const list=()=>document.querySelector('.request-tabs-list');
+const tabs=()=>document.querySelectorAll('.request-document');
+const left=()=>button('Scroll request tabs left'),right=()=>button('Scroll request tabs right');
+function visible(el){const rect=el.getBoundingClientRect(),viewport=list().getBoundingClientRect();return rect.left>=viewport.left-1&&rect.right<=viewport.right+1;}
+try{
+ await until(()=>button('New request')&&!button('New request').disabled);
+ await click('New request');await until(()=>tabs().length===1);assert(!left()&&!right(),'No arrows when tabs fit');
+ const input=document.querySelector('[aria-label="Request URL"]');input.value='https://api.example.com/retained';input.dispatchEvent(new Event('input',{bubbles:true}));
+ for(let i=2;i<=20;i++){await click('New request');await until(()=>tabs().length===i&&visible(document.querySelector('.request-document.active')));assert(button('New request').getBoundingClientRect().right<=document.querySelector('.request-tabs').getBoundingClientRect().right+1,'Plus remains within the tab bar');}
+ await until(()=>left()&&right()&&!left().disabled&&right().disabled);
+ assert(tabs().length===20,'Overflow allows more requests');assert(getComputedStyle(list()).scrollbarWidth==='none','Tab scrollbar stays hidden');
+ async function scroll(direction){const target=Math.max(0,Math.min(list().scrollWidth-list().clientWidth,list().scrollLeft+direction*list().clientWidth*0.8));await click(direction<0?'Scroll request tabs left':'Scroll request tabs right');await until(()=>Math.abs(list().scrollLeft-target)<1);}
+ while(!left().disabled)await scroll(-1);
+ assert(visible(tabs()[0])&&left().disabled&&!right().disabled,'Left chevron reaches first tab');
+ await click('Open request tab 1: Untitled');assert(document.querySelector('[aria-label="Request URL"]').value==='https://api.example.com/retained','Navigation preserves draft');
+ while(!right().disabled)await scroll(1);
+ assert(visible(tabs()[19])&&right().disabled,'Right chevron reaches last tab');
+ await click('Open request tab 2: Untitled');await click('Open request tab 1: Untitled');await until(()=>visible(tabs()[0]));
+ const nav=document.querySelector('.request-tabs');nav.style.maxWidth='260px';await until(()=>list().clientWidth<200);assert(left()&&right(),'Resize keeps overflow navigation');nav.style.maxWidth='';await until(()=>list().clientWidth>=200);
+ button('Edit request name').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}));await until(()=>document.querySelector('input[aria-label="Edit request name"]'));const nameInput=document.querySelector('input[aria-label="Edit request name"]');nameInput.value='A very long request name that must remain truncated within its tab';nameInput.dispatchEvent(new Event('input',{bubbles:true}));nameInput.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));await until(()=>!document.querySelector('.request-name-input'));assert(tabs()[0].getBoundingClientRect().width<=240&&getComputedStyle(tabs()[0].querySelector('.request-tab-name')).textOverflow==='ellipsis','Long names retain maximum width and truncation');
+ for(const tab of [...tabs()].slice(1)){await click(tab.querySelector('.request-tab-close').getAttribute('aria-label'));await until(()=>!tab.isConnected);assert(!document.querySelector('[role="dialog"][data-state="open"]'),'Blank tabs close without prompting');}
+ await until(()=>tabs().length===1&&!left()&&!right());assert(document.querySelector('[aria-label="Request URL"]').value==='https://api.example.com/retained','Closing other tabs preserves active draft');
+ // Leave overflow visible for visual inspection.
+ for(let i=0;i<7;i++)await click('New request');await until(()=>left()&&right()&&visible(document.querySelector('.request-document.active')));
+ document.body.insertAdjacentHTML('beforeend','<output id="overflow-result" style="position:fixed;bottom:28px;right:12px;color:#10b981">PASS: request tab overflow checks</output>');
+}catch(error){document.body.insertAdjacentHTML('beforeend','<output id="overflow-result" style="position:fixed;bottom:28px;right:12px;color:#f87171"></output>');document.querySelector('#overflow-result').textContent=`FAIL: ${error.message}`;console.error(error);}
+</script></html>

@@ -1,0 +1,23 @@
+info:
+  name: Get Users
+  type: http
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/users"
+  headers:
+    - name: Authorization
+      value: "Bearer {{token}}"
+  params:
+    - name: page
+      value: "1"
+      type: query
+
+runtime:
+  variables: []
+  scripts: []
+  assertions: []
+
+settings:
+  encodeUrl: true
+  timeout: 30000
