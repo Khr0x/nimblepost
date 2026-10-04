@@ -1,0 +1,101 @@
+name: Native distribution validation
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    name: Native ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    env:
+      CARGO_TERM_COLOR: always
+      RUSTUP_TOOLCHAIN: '1.96.1'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install dependencies
+        run: |
+          npm ci
+          rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --component clippy
+      - name: Install Linux libraries and virtual display
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev xvfb dbus-x11
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: native-${{ runner.os }}-${{ runner.arch }}-${{ env.RUSTUP_TOOLCHAIN }}-${{ hashFiles('Cargo.lock', '**/Cargo.toml') }}
+      - name: Test native backend, storage, recovery and file notifications
+        run: cargo test --workspace --locked
+      - name: Build production installers without validation hooks
+        run: npm run tauri --workspace @nimblepost/desktop -- build --ci -- --locked
+      - name: Install and launch production Windows package
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installer = @(Get-ChildItem target/release/bundle/nsis/*-setup.exe)
+          if ($installer.Count -ne 1) { throw 'Expected one NSIS installer' }
+          $installPath = Join-Path $env:RUNNER_TEMP 'nimblepost-package'
+          $install = Start-Process $installer[0].FullName -ArgumentList "/S /D=$installPath" -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "Installer failed: $($install.ExitCode)" }
+          $binary = Join-Path $installPath 'NimblePost.exe'
+          if (!(Test-Path $binary)) { throw 'Installed executable is missing' }
+          if (!(Get-ChildItem $installPath -Recurse -Filter opencollection.yml)) { throw 'Bundled example is missing' }
+          $app = Start-Process $binary -PassThru
+          try {
+            Start-Sleep -Seconds 5
+            $app.Refresh()
+            if ($app.HasExited -or $app.MainWindowHandle -eq 0) { throw 'Installed app did not open a native window' }
+          } finally { if (!$app.HasExited) { Stop-Process -Id $app.Id } }
+      - name: Inspect Debian package and dependencies
+        if: runner.os == 'Linux'
+        run: |
+          for package in target/release/bundle/deb/*.deb; do
+            dpkg-deb --info "$package"
+            dpkg-deb --contents "$package" > "$RUNNER_TEMP/package-contents.txt"
+            grep -q 'NimblePost' "$RUNNER_TEMP/package-contents.txt"
+            grep -q 'examples/basic-http/opencollection.yml' "$RUNNER_TEMP/package-contents.txt"
+            grep -q 'libwebkit2gtk-4.1' <(dpkg-deb --field "$package" Depends)
+          done
+      - name: Install and launch production Debian package
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y ./target/release/bundle/deb/*.deb
+          dbus-run-session -- xvfb-run -a bash -c '
+            /usr/bin/NimblePost > "$RUNNER_TEMP/installed-app.log" 2>&1 &
+            app_pid=$!
+            trap "kill $app_pid 2>/dev/null || true" EXIT
+            sleep 5
+            kill -0 "$app_pid" || { cat "$RUNNER_TEMP/installed-app.log"; exit 1; }
+          '
+      - name: Upload production installers
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ runner.os }}-${{ runner.arch }}
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            target/release/bundle/nsis/*-setup.exe
+            target/release/bundle/deb/*.deb

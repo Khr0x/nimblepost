@@ -148,7 +148,10 @@ fn allowed(kind: DocumentKind, path: &[String]) -> bool {
             variable_path(rest)
         }
         ["name"] if kind == DocumentKind::Environment => true,
-        ["variables", rest @ ..] if kind == DocumentKind::Environment => variable_path(rest),
+        ["variables", rest @ ..] if kind == DocumentKind::Environment => {
+            variable_path(rest)
+                || matches!(rest, [index, "description"] | [index, "description", "content"] if index.parse::<usize>().is_ok())
+        }
         _ => false,
     }
 }
@@ -581,7 +584,47 @@ pub async fn create_request_with_edits(
     file_name: String,
     method: String,
     url: String,
+    edits: Vec<FieldEdit>,
+) -> Result<Document> {
+    if reqwest::Method::from_bytes(method.as_bytes()).is_err() {
+        return Err(Error::config(&root, "method", "Método HTTP inválido"));
+    }
+    if url.len() > 8192 || url.chars().any(char::is_control) {
+        return Err(Error::config(
+            &root,
+            "url",
+            "La URL no debe superar 8192 bytes ni contener controles",
+        ));
+    }
+    let source = format!(
+        "info:\n  name: {}\n  type: http\nhttp:\n  method: {}\n  url: {}\n",
+        serde_json::to_string(name.trim()).unwrap(),
+        serde_json::to_string(&method).unwrap(),
+        serde_json::to_string(url.trim()).unwrap()
+    );
+    create_request_from_source(root, folder, name, file_name, source, edits, true).await
+}
+
+/// Save the complete configuration of an untitled or recovered request.
+pub async fn create_request_from_draft(
+    root: PathBuf,
+    folder: String,
+    name: String,
+    value: Value,
+) -> Result<Document> {
+    let source = serde_json::to_string(&value)
+        .map_err(|_| Error::config(&root, "request", "Borrador inválido"))?;
+    create_request_from_source(root, folder, name, String::new(), source, vec![], false).await
+}
+
+async fn create_request_from_source(
+    root: PathBuf,
+    folder: String,
+    name: String,
+    file_name: String,
+    source: String,
     mut edits: Vec<FieldEdit>,
+    validate_new: bool,
 ) -> Result<Document> {
     let root = tokio::fs::canonicalize(&root)
         .await
@@ -608,6 +651,19 @@ pub async fn create_request_with_edits(
             file_name
         };
         request_name(&root, &name, &file_name)?;
+        let doc = Document::from_yaml(
+            directory_within(&root, &folder)?.join(format!("{file_name}.yml")),
+            source,
+        )?;
+        let method = doc.value()["http"]["method"]
+            .as_str()
+            .ok_or_else(|| doc.error("method", "Método HTTP inválido"))?;
+        let url = doc.value()["http"]["url"]
+            .as_str()
+            .ok_or_else(|| doc.error("url", "URL inválida"))?;
+        if doc.value()["info"]["type"] != "http" {
+            return Err(doc.error("info.type", "Se requiere una petición HTTP"));
+        }
         if reqwest::Method::from_bytes(method.as_bytes()).is_err() {
             return Err(Error::config(&root, "method", "Método HTTP inválido"));
         }
@@ -618,21 +674,15 @@ pub async fn create_request_with_edits(
                 "La URL no debe superar 8192 bytes ni contener controles",
             ));
         }
-        let doc = Document::from_yaml(
-            directory_within(&root, &folder)?.join(format!("{file_name}.yml")),
-            format!(
-                "info:\n  name: {}\n  type: http\nhttp:\n  method: {}\n  url: {}\n",
-                serde_json::to_string(name.trim()).unwrap(),
-                serde_json::to_string(&method).unwrap(),
-                serde_json::to_string(url.trim()).unwrap()
-            ),
-        )?;
         edits.push(FieldEdit {
             path: vec!["info".into(), "name".into()],
             value: Some(serde_json::json!(name.trim())),
         });
         let doc = doc.edited(DocumentKind::HttpRequest, &edits)?;
-        doc.validate(DocumentKind::HttpRequest)?;
+        // Recovered copies retain pre-existing unsupported fields, just like opened requests.
+        if validate_new {
+            doc.validate(DocumentKind::HttpRequest)?;
+        }
         write_new_document(&doc)?;
         Ok(doc)
     })
@@ -658,21 +708,10 @@ pub async fn rename_request(
     copy_request(root, original, name, file_name, true).await
 }
 
-async fn copy_request(
-    root: PathBuf,
-    original: Document,
-    name: String,
-    file_name: String,
-    rename: bool,
-) -> Result<Document> {
-    let root = tokio::fs::canonicalize(&root)
-        .await
-        .map_err(|e| Error::io(&root, e))?;
-    crate::collection::read_collection(&root).await?;
-    request_name(&root, &name, &file_name)?;
+fn request_parent(root: &Path, original: &Document) -> Result<PathBuf> {
     let relative = original
         .path()
-        .strip_prefix(&root)
+        .strip_prefix(root)
         .map_err(|_| original.error("path", "La petición pertenece a otra colección"))?;
     if original.value()["info"]["type"] != "http"
         || !matches!(
@@ -689,13 +728,45 @@ async fn copy_request(
     {
         return Err(original.error("path", "Selecciona un archivo de petición HTTP"));
     }
-    let parent = directory_within(
-        &root,
+    directory_within(
+        root,
         relative.parent().and_then(|p| p.to_str()).unwrap_or(""),
-    )?;
+    )
+}
+
+/// Delete one opened HTTP request only if its original bytes still match.
+pub async fn delete_request(root: PathBuf, original: Document) -> Result<()> {
+    let root = tokio::fs::canonicalize(&root)
+        .await
+        .map_err(|e| Error::io(&root, e))?;
+    crate::collection::read_collection(&root).await?;
+    tokio::task::spawn_blocking(move || {
+        let _writer = WRITER.lock().unwrap();
+        request_parent(&root, &original)?;
+        check_revision(&original)?;
+        // ponytail: the final unlink can race external writers; use handle-relative OS APIs if stronger protection is required.
+        fs::remove_file(original.path()).map_err(|e| Error::io(original.path(), e))
+    })
+    .await
+    .map_err(|_| Error::config("", "request", "No se pudo eliminar la petición"))?
+}
+
+async fn copy_request(
+    root: PathBuf,
+    original: Document,
+    name: String,
+    file_name: String,
+    rename: bool,
+) -> Result<Document> {
+    let root = tokio::fs::canonicalize(&root)
+        .await
+        .map_err(|e| Error::io(&root, e))?;
+    crate::collection::read_collection(&root).await?;
+    request_name(&root, &name, &file_name)?;
+    let parent = request_parent(&root, &original)?;
     let destination = parent.join(format!(
         "{file_name}.{}",
-        relative.extension().unwrap().to_str().unwrap()
+        original.path().extension().unwrap().to_str().unwrap()
     ));
     let edited = original.edited(
         DocumentKind::HttpRequest,

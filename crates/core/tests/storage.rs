@@ -1,7 +1,8 @@
 use nimblepost_core::{
     Document, DocumentKind, Error, FieldEdit, History, HistoryEntry, collection_index,
-    create_collection, create_environment, create_folder, create_request, duplicate_request,
-    load_request, rename_folder, rename_request, save_document,
+    create_collection, create_environment, create_folder, create_request,
+    create_request_from_draft, delete_request, duplicate_request, load_request, rename_folder,
+    rename_request, save_document,
 };
 use serde_json::json;
 use std::fs;
@@ -13,6 +14,118 @@ fn edit(path: &[&str], value: Option<serde_json::Value>) -> FieldEdit {
     }
 }
 const SOURCE: &str = "# comentario ajeno\ninfo: {name: Test, type: http}\nhttp:\n  method: GET # conservar inline\n  url: '{{baseUrl}}/users'\n  headers:\n    - name: X-Demo # conservar fila\n      value: 'yes'\n      description: untouched\nforeign: {note: 'keep unknown'}\ndocs: |\n  multilínea ñ\n";
+
+#[tokio::test]
+async fn saving_recovered_copies_keeps_full_configuration_and_never_overwrites_files() {
+    let parent = tempfile::tempdir().unwrap();
+    let root = create_collection(parent.path().into(), "API".into(), "api".into())
+        .await
+        .unwrap();
+    let original = Document::from_yaml(root.join("original.yml"), SOURCE).unwrap();
+    let mut value = original.value().clone();
+    value["http"]["body"] = json!({"type":"json","data":"{\"recovered\":true}"});
+    value["http"]["headers"] =
+        json!([{"name":"X-Repeat","value":"one"},{"name":"X-Repeat","value":"two"}]);
+    let saved = create_request_from_draft(
+        root.clone(),
+        "".into(),
+        "Recovered copy".into(),
+        value.clone(),
+    )
+    .await
+    .unwrap();
+    value["info"]["name"] = json!("Recovered copy");
+    assert_eq!(saved.value(), &value);
+    assert_eq!(saved.path(), root.join("recovered-copy.yml"));
+    let bytes = fs::read(saved.path()).unwrap();
+    assert!(
+        create_request_from_draft(
+            root.clone(),
+            "".into(),
+            "Recovered copy".into(),
+            value.clone()
+        )
+        .await
+        .is_err()
+    );
+    assert_eq!(fs::read(saved.path()).unwrap(), bytes);
+    value["http"]["method"] = json!("bad method");
+    assert!(
+        create_request_from_draft(root.clone(), "".into(), "Invalid".into(), value)
+            .await
+            .is_err()
+    );
+    assert!(!root.join("invalid.yml").exists());
+}
+
+#[tokio::test]
+async fn deleting_requests_preserves_neighbors_and_rejects_changed_or_unsafe_files() {
+    let parent = tempfile::tempdir().unwrap();
+    let root = create_collection(parent.path().into(), "API".into(), "api".into())
+        .await
+        .unwrap();
+    create_folder(root.clone(), "".into(), "Users".into(), "users".into())
+        .await
+        .unwrap();
+    let manifest = fs::read(root.join("opencollection.yml")).unwrap();
+    let folder = fs::read(root.join("users/folder.yml")).unwrap();
+    fs::write(root.join("keep.yml"), SOURCE).unwrap();
+    for path in ["root.yml", "users/list.yaml"] {
+        fs::write(root.join(path), SOURCE).unwrap();
+        let original = Document::read(root.join(path)).await.unwrap();
+        delete_request(root.clone(), original.clone())
+            .await
+            .unwrap();
+        assert!(!original.path().exists());
+        assert!(matches!(
+            delete_request(root.clone(), original).await,
+            Err(Error::Conflict { .. })
+        ));
+    }
+    assert_eq!(
+        collection_index(&root).await.unwrap().requests,
+        ["keep.yml"]
+    );
+    assert_eq!(fs::read_to_string(root.join("keep.yml")).unwrap(), SOURCE);
+    assert_eq!(fs::read(root.join("opencollection.yml")).unwrap(), manifest);
+    assert_eq!(fs::read(root.join("users/folder.yml")).unwrap(), folder);
+
+    let original = Document::read(root.join("keep.yml")).await.unwrap();
+    let changed = format!("{SOURCE}# changed externally\n");
+    fs::write(original.path(), &changed).unwrap();
+    assert!(matches!(
+        delete_request(root.clone(), original).await,
+        Err(Error::Conflict { .. })
+    ));
+    assert_eq!(fs::read_to_string(root.join("keep.yml")).unwrap(), changed);
+    fs::create_dir(root.join("environments")).unwrap();
+    for path in [
+        root.join("opencollection.yml"),
+        root.join("users/folder.yml"),
+        root.join(".hidden.yml"),
+        root.join("environments/private.yml"),
+        parent.path().join("outside.yml"),
+    ] {
+        let original = Document::from_yaml(&path, SOURCE).unwrap();
+        assert!(delete_request(root.clone(), original).await.is_err());
+    }
+    #[cfg(unix)]
+    {
+        let path = root.join("linked.yml");
+        fs::write(&path, SOURCE).unwrap();
+        let original = Document::read(&path).await.unwrap();
+        let outside = parent.path().join("outside.yml");
+        fs::write(&outside, SOURCE).unwrap();
+        fs::remove_file(&path).unwrap();
+        std::os::unix::fs::symlink(&outside, &path).unwrap();
+        assert!(matches!(
+            delete_request(root.clone(), original).await,
+            Err(Error::Conflict { .. })
+        ));
+        assert!(fs::symlink_metadata(path).unwrap().file_type().is_symlink());
+        assert_eq!(fs::read_to_string(outside).unwrap(), SOURCE);
+    }
+}
 
 #[tokio::test]
 async fn new_collections_and_requests_are_valid_editable_and_never_overwrite() {
@@ -412,9 +525,38 @@ async fn environments_preserve_secret_declarations_and_refuse_overwrite_or_escap
         .await
         .unwrap();
     let changed = doc.edited(DocumentKind::Environment, &[edit(&["variables"], Some(json!([
-        {"name":"baseUrl","value":"http://127.0.0.1:3000"}, {"name":"token","secret":true,"type":"string"}
+        {"name":"baseUrl","value":"http://127.0.0.1:3000","description":"API address"},
+        {"name":"token","secret":true,"type":"string","description":{"type":"text/markdown","content":"Credential"}}
     ])))]).unwrap();
     let saved = save_document(doc, changed).await.unwrap();
+    let described = saved
+        .edited(
+            DocumentKind::Environment,
+            &[
+                edit(
+                    &["variables", "0", "description"],
+                    Some(json!("QA API address")),
+                ),
+                edit(
+                    &["variables", "1", "description", "content"],
+                    Some(json!("Runtime credential")),
+                ),
+            ],
+        )
+        .unwrap();
+    let saved = save_document(saved, described).await.unwrap();
+    assert_eq!(
+        saved.value()["variables"][0]["description"],
+        "QA API address"
+    );
+    assert_eq!(
+        saved.value()["variables"][1]["description"],
+        json!({"type":"text/markdown","content":"Runtime credential"})
+    );
+    assert_eq!(
+        saved.value()["variables"][0]["value"],
+        "http://127.0.0.1:3000"
+    );
     assert!(saved.value()["variables"][1].get("value").is_none());
     let edited = saved
         .edited(

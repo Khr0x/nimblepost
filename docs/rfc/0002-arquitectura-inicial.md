@@ -61,7 +61,7 @@ apps/desktop/
         ui/                 # primitivas shadcn-svelte
       features/
         collections/tree.ts # construcción del árbol de navegación
-        requests/           # borrador, estado de tabs, RequestTabs y RequestEditor
+        requests/           # borrador, tabs, RequestEditor y BodyEditor (CodeMirror diferido)
         responses/          # ResponsePanel, JSONViewer, formato y dimensiones
         workspaces/         # vista WorkspaceManager
   tests/
@@ -76,6 +76,10 @@ apps/desktop/
       session/tests.rs      # pruebas del backend de Desktop
       workspaces.rs         # registro persistente de workspaces/referencias
       workspaces/tests.rs   # pruebas del registro local
+      recovery.rs           # respaldo privado de pestañas y borradores de requests
+      recovery/tests.rs     # corrupción, conflictos y permisos del respaldo
+      watcher.rs            # notificaciones nativas de las colecciones activas
+      watcher/tests.rs      # filtros, reemplazo de raíz y suscripciones nativas
     icons/                  # iconos nativos generados por plataforma
     capabilities/           # permisos Tauri
 crates/core/
@@ -188,9 +192,12 @@ No se considera implementado el contrato por haber validado ejemplos con Node.
 El backend Rust deberá pasar los mismos fixtures y las pruebas de comportamiento
 antes de utilizarse desde Desktop o CLI.
 
-El arranque, memoria en reposo y uso con respuestas grandes se medirán en la
-primera aplicación ejecutable. Los budgets de la propuesta son objetivos, no
-garantías derivadas de elegir Tauri o Rust.
+La [validación nativa de CI](../../.github/workflows/native-validation.yml) compila,
+instala y abre los paquetes de Windows y Linux, y ejecuta las pruebas Rust.
+Los resultados Windows/Linux x64 siguen pendientes. El
+[RFC-0010](0010-presupuestos-rendimiento.md) conserva el protocolo de rendimiento
+como referencia; sus herramientas y reportes se retiraron del repositorio.
+Los objetivos absolutos pendientes no son garantías derivadas de elegir Tauri o Rust.
 
 
 ## Workspaces locales implementados
@@ -203,3 +210,18 @@ para las operaciones del editor y HTTP. Cambiar de raíz invalida revisiones y
 respuesta en memoria, y la UI exige guardar o descartar los borradores antes
 de cambiar. Las referencias se restauran al iniciar; las carpetas inaccesibles
 se conservan con un aviso. Quitar una referencia no borra la carpeta.
+
+La última sesión de pestañas y borradores de requests se respalda por separado
+en `recovery.json` dentro de los datos de Tauri. La UI guarda solo configuración
+y selección, obtiene revisiones nuevas al reabrir y convierte archivos ausentes
+o modificados en copias sin guardar. Las respuestas y los secretos suministrados
+para ejecutar quedan fuera del respaldo. Las escrituras se ordenan y el cierre
+normal espera el último respaldo; sus límites y política están en el README
+de Desktop.
+
+Las notificaciones de `notify` se emiten como `collection-changed`. La UI agrupa
+las ráfagas y relee los árboles mediante `refresh_collections`, que conserva la
+raíz activa y las revisiones. `inspect_request` compara bytes sin reemplazar el
+snapshot abierto; un tab limpio se recarga y uno editado ofrece recarga o copia.
+La desaparición de un request conserva su configuración como copia sin guardar.
+El refresco al volver a enfocar y la acción manual complementan al watcher.

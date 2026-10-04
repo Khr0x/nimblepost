@@ -78,7 +78,7 @@ export function releaseNotes(version) {
     'After attempting the first launch, users who trust this download can select ' +
     'System Settings → Privacy & Security → Open Anyway.\n\n' +
     'Instructions: https://support.apple.com/en-us/102445\n\n' +
-    'Unsaved drafts are not restored after restarting. Windows and Linux installers are not included.\n';
+    'Tabs and request drafts are recovered locally after restarting. Windows and Linux installers are not included in this macOS release.\n';
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

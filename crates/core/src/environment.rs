@@ -18,6 +18,30 @@ pub struct VariableOrigin {
     pub secret: bool,
 }
 
+/// Editor metadata. Secret values never leave the execution context.
+#[derive(serde::Serialize)]
+pub struct VariablePreview {
+    pub name: String,
+    pub value: Option<String>,
+    pub scope: &'static str,
+    pub path: PathBuf,
+    pub secret: bool,
+}
+
+pub fn inherited_variables(loaded: &LoadedRequest) -> Result<Vec<VariablePreview>> {
+    Ok(Variables::inherited(loaded, &ExecutionContext::default())?
+        .values
+        .into_iter()
+        .map(|(name, variable)| VariablePreview {
+            name,
+            value: variable.value,
+            scope: variable.origin.scope,
+            path: variable.origin.path,
+            secret: variable.origin.secret,
+        })
+        .collect())
+}
+
 struct Variable {
     value: Option<String>,
     origin: VariableOrigin,
@@ -29,30 +53,7 @@ pub(crate) struct Variables {
 
 impl Variables {
     pub(crate) fn new(loaded: &LoadedRequest, context: &ExecutionContext) -> Result<Self> {
-        let mut resolver = Self {
-            values: BTreeMap::new(),
-        };
-        for (index, doc) in loaded.defaults.iter().enumerate() {
-            resolver.add(
-                doc,
-                &doc.value["request"]["variables"],
-                if index == 0 { "collection" } else { "folder" },
-                context,
-            )?;
-        }
-        if let Some(doc) = &loaded.environment {
-            reject_active(
-                doc,
-                &doc.value,
-                &[
-                    "extends",
-                    "dotEnvFilePath",
-                    "externalSecrets",
-                    "clientCertificates",
-                ],
-            )?;
-            resolver.add(doc, &doc.value["variables"], "environment", context)?;
-        }
+        let mut resolver = Self::inherited(loaded, context)?;
         resolver.add(
             &loaded.request,
             &loaded.request.value["runtime"]["variables"],
@@ -78,6 +79,34 @@ impl Variables {
                     },
                 },
             );
+        }
+        Ok(resolver)
+    }
+
+    fn inherited(loaded: &LoadedRequest, context: &ExecutionContext) -> Result<Self> {
+        let mut resolver = Self {
+            values: BTreeMap::new(),
+        };
+        for (index, doc) in loaded.defaults.iter().enumerate() {
+            resolver.add(
+                doc,
+                &doc.value["request"]["variables"],
+                if index == 0 { "collection" } else { "folder" },
+                context,
+            )?;
+        }
+        if let Some(doc) = &loaded.environment {
+            reject_active(
+                doc,
+                &doc.value,
+                &[
+                    "extends",
+                    "dotEnvFilePath",
+                    "externalSecrets",
+                    "clientCertificates",
+                ],
+            )?;
+            resolver.add(doc, &doc.value["variables"], "environment", context)?;
         }
         Ok(resolver)
     }

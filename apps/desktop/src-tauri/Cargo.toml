@@ -15,10 +15,13 @@ path = "src/main.rs"
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]
+native-validation = []
+native-inspector = ["native-validation", "tauri/devtools"]
 
 [dependencies]
 base64.workspace = true
 nimblepost-core = { path = "../../../crates/core" }
+notify = "=8.2.0"
 serde.workspace = true
 serde_json.workspace = true
 tauri = { version = "=2.12.0", features = [] }

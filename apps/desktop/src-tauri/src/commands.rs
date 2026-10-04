@@ -1,13 +1,43 @@
+use crate::recovery::{RecoverySnapshot, RecoveryView};
 use crate::session::{
-    CollectionView, CreateRequestInput, HistoryView, RenameRequestInput, RequestSummary,
-    RequestUpdate, RequestView, ResponseMeta, SaveInput, SendInput, Session, WorkspaceView,
+    CollectionView, CreateRequestInput, HistoryView, RenameRequestInput, RequestInspection,
+    RequestSummary, RequestUpdate, RequestView, ResponseMeta, SaveInput, SendInput, Session,
+    WorkspaceView,
 };
 use tauri::{Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
 #[tauri::command]
+pub(crate) fn read_recovery(session: State<'_, Session>) -> RecoveryView {
+    session.read_recovery()
+}
+
+#[tauri::command]
+pub(crate) async fn save_recovery(
+    snapshot: RecoverySnapshot,
+    session: State<'_, Session>,
+) -> Result<(), String> {
+    session.save_recovery(snapshot).await
+}
+
+#[tauri::command]
 pub(crate) async fn read_workspace(session: State<'_, Session>) -> Result<WorkspaceView, String> {
     session.read_workspace().await
+}
+#[tauri::command]
+pub(crate) async fn refresh_collections(
+    session: State<'_, Session>,
+) -> Result<WorkspaceView, String> {
+    session.refresh_collections().await
+}
+#[tauri::command]
+pub(crate) async fn inspect_request(
+    root: std::path::PathBuf,
+    path: String,
+    revision: u64,
+    session: State<'_, Session>,
+) -> Result<RequestInspection, String> {
+    session.inspect_request(root, path, revision).await
 }
 #[tauri::command]
 pub(crate) async fn create_workspace(
@@ -156,6 +186,14 @@ pub(crate) async fn rename_request(
 }
 
 #[tauri::command]
+pub(crate) async fn delete_request(
+    session: State<'_, Session>,
+    revision: u64,
+) -> Result<CollectionView, String> {
+    session.delete_request(revision).await
+}
+
+#[tauri::command]
 pub(crate) async fn duplicate_request(
     session: State<'_, Session>,
     input: RenameRequestInput,
@@ -203,11 +241,26 @@ pub(crate) fn read_response(
 }
 
 #[tauri::command]
+pub(crate) fn release_response(id: u64, session: State<'_, Session>) {
+    session.release_response(id);
+}
+
+#[tauri::command]
 pub(crate) async fn save_document(
     input: SaveInput,
     session: State<'_, Session>,
 ) -> Result<RequestView, String> {
     session.save(input).await
+}
+#[tauri::command]
+pub(crate) async fn read_variable_context(
+    path: Option<String>,
+    environment: Option<String>,
+    session: State<'_, Session>,
+) -> Result<Vec<nimblepost_core::VariablePreview>, String> {
+    session
+        .read_variable_context(path.as_deref(), environment.as_deref())
+        .await
 }
 #[tauri::command]
 pub(crate) async fn read_environment(

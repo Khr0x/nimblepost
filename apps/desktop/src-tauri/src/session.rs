@@ -1,9 +1,12 @@
+use crate::recovery::{RecoverySnapshot, RecoveryStore, RecoveryView};
+use crate::watcher::{CollectionChange, CollectionWatcher};
 use crate::workspaces::{CollectionRef, Registry, Store};
 use base64::Engine;
 use nimblepost_core::{
     CancellationToken, CollectionIndex, Document, DocumentKind, ExecutionContext, FieldEdit,
-    History, HistoryEntry, HttpResponse, LoadedRequest, collection_index, create_collection,
-    create_environment, create_folder, create_request_with_edits, duplicate_request, execute,
+    History, HistoryEntry, HttpResponse, LoadedRequest, VariablePreview, collection_index,
+    create_collection, create_environment, create_folder, create_request_from_draft,
+    create_request_with_edits, delete_request, duplicate_request, execute, inherited_variables,
     load_environment, load_request, prepare, read_within, rename_folder, rename_request,
     save_document,
 };
@@ -25,6 +28,8 @@ pub struct Session {
     history_warning: Mutex<Option<String>>,
     workspaces: Arc<Mutex<Store>>,
     workspace_warning: Mutex<Option<String>>,
+    recovery: Arc<Mutex<RecoveryStore>>,
+    watcher: Mutex<CollectionWatcher>,
 }
 
 #[derive(Default)]
@@ -63,6 +68,15 @@ pub struct WorkspaceView {
     collections: Vec<CollectionView>,
     active_collection: Option<String>,
     warning: Option<String>,
+    watch_warning: Option<String>,
+    #[cfg(feature = "native-validation")]
+    validation_plan: Option<serde_json::Value>,
+}
+
+#[derive(Serialize)]
+pub struct RequestInspection {
+    request: RequestView,
+    changed: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -120,6 +134,8 @@ pub struct CreateRequestInput {
     pub folder: String,
     #[serde(default)]
     pub edits: Vec<FieldEdit>,
+    #[serde(default)]
+    pub document: Option<serde_json::Value>,
 }
 
 fn default_request_method() -> String {
@@ -193,6 +209,33 @@ impl Drop for ActiveGuard<'_> {
 }
 
 impl Session {
+    pub fn init_watcher(&self, callback: impl Fn(CollectionChange) + Send + 'static) {
+        self.watcher.lock().unwrap().start(callback);
+        let registry = self.workspaces.lock().unwrap().registry.clone();
+        self.sync_watcher(&registry);
+    }
+    fn sync_watcher(&self, registry: &Registry) {
+        self.watcher.lock().unwrap().update(
+            registry
+                .active()
+                .collections
+                .iter()
+                .map(|owner| owner.root.clone())
+                .collect(),
+        );
+    }
+    pub fn init_recovery(&self, path: PathBuf) {
+        *self.recovery.lock().unwrap() = RecoveryStore::open(path);
+    }
+    pub fn read_recovery(&self) -> RecoveryView {
+        self.recovery.lock().unwrap().view.clone()
+    }
+    pub async fn save_recovery(&self, snapshot: RecoverySnapshot) -> Result<(), String> {
+        let recovery = self.recovery.clone();
+        tokio::task::spawn_blocking(move || recovery.lock().unwrap().save(snapshot))
+            .await
+            .map_err(|_| "Could not save recovery data")?
+    }
     pub fn init_workspaces(&self, path: PathBuf) {
         match Store::open(path) {
             Ok(store) => *self.workspaces.lock().unwrap() = store,
@@ -225,19 +268,26 @@ impl Session {
             return Err(warning);
         }
         let store = self.workspaces.clone();
-        tokio::task::spawn_blocking(move || store.lock().unwrap().update(edit))
+        let registry = tokio::task::spawn_blocking(move || store.lock().unwrap().update(edit))
             .await
-            .map_err(|_| "Could not save workspace references")?
+            .map_err(|_| "Could not save workspace references")??;
+        self.sync_watcher(&registry);
+        Ok(registry)
     }
     async fn workspace_view(&self, registry: Registry, restore: bool) -> WorkspaceView {
+        self.sync_watcher(&registry);
         let workspace = registry.active();
         let mut collections = vec![];
         // ponytail: sequential lazy indexing per collection; bounded parallel indexing if startup profiles require it.
         for reference in &workspace.collections {
+            #[cfg(feature = "native-validation")]
+            let timing = crate::validation::Stage::start("collection-index", 1);
             let index = collection_index(&reference.root).await.map_err(|error| error.to_string())
                 .and_then(|index| if index.root == reference.root { Ok(index) } else {
                     Err("Collection folder now points to a different location. Remove its reference and open it again".into())
                 });
+            #[cfg(feature = "native-validation")]
+            drop(timing);
             let view = match index {
                 Ok(index) => CollectionView::from_index(index, reference.read_only),
                 Err(error) => CollectionView {
@@ -287,7 +337,71 @@ impl Session {
             collections,
             active_collection,
             warning: self.workspace_warning.lock().unwrap().clone(),
+            watch_warning: self.watcher.lock().unwrap().warning.clone(),
+            #[cfg(feature = "native-validation")]
+            validation_plan: crate::validation::plan(),
         }
+    }
+    pub async fn refresh_collections(&self) -> Result<WorkspaceView, String> {
+        let _operation = self
+            .operation
+            .try_lock()
+            .map_err(|_| "Another operation is running")?;
+        let registry = self.workspaces.lock().unwrap().registry.clone();
+        // Reading the tree must never switch the active root or invalidate draft revisions.
+        Ok(self.workspace_view(registry, false).await)
+    }
+    pub async fn inspect_request(
+        &self,
+        root: PathBuf,
+        path: String,
+        revision: u64,
+    ) -> Result<RequestInspection, String> {
+        if !self
+            .workspaces
+            .lock()
+            .unwrap()
+            .registry
+            .active()
+            .collections
+            .iter()
+            .any(|owner| owner.root == root)
+        {
+            return Err("Collection is not in the active workspace".into());
+        }
+        if tokio::fs::canonicalize(&root)
+            .await
+            .map_err(|error| error.to_string())?
+            != root
+        {
+            return Err("Collection folder now points to a different location".into());
+        }
+        let relative = Path::new(&path);
+        if relative.is_absolute()
+            || relative
+                .components()
+                .any(|part| !matches!(part, std::path::Component::Normal(_)))
+        {
+            return Err("Select a request inside the collection".into());
+        }
+        let document = read_within(&root, relative)
+            .await
+            .map_err(|error| error.to_string())?;
+        if document.value()["info"]["type"] != "http" {
+            return Err("Select an HTTP request".into());
+        }
+        let changed = self
+            .inner
+            .lock()
+            .unwrap()
+            .snapshots
+            .get(&revision)
+            .filter(|(_, original)| original.path() == document.path())
+            .map(|(_, original)| original.original() != document.original());
+        Ok(RequestInspection {
+            request: Self::request_view(DocumentKind::HttpRequest, &document, 0),
+            changed,
+        })
     }
     pub async fn read_workspace(&self) -> Result<WorkspaceView, String> {
         let _operation = self
@@ -491,16 +605,23 @@ impl Session {
         if index.requests.len() >= 10_000 {
             return Err("This version indexes up to 10,000 requests".into());
         }
-        let document = create_request_with_edits(
-            root,
-            input.folder,
-            input.name,
-            input.file_name,
-            input.method,
-            input.url,
-            input.edits,
-        )
-        .await
+        let document = if let Some(document) = input.document {
+            if !input.edits.is_empty() || !input.file_name.is_empty() {
+                return Err("A complete draft cannot also supply field edits or a filename".into());
+            }
+            create_request_from_draft(root, input.folder, input.name, document).await
+        } else {
+            create_request_with_edits(
+                root,
+                input.folder,
+                input.name,
+                input.file_name,
+                input.method,
+                input.url,
+                input.edits,
+            )
+            .await
+        }
         .map_err(|e| e.to_string())?;
         Ok(self.request_update(index, document, None))
     }
@@ -622,6 +743,38 @@ impl Session {
         self.copy_request(input, true).await
     }
 
+    pub async fn delete_request(&self, revision: u64) -> Result<CollectionView, String> {
+        let _operation = self
+            .operation
+            .try_lock()
+            .map_err(|_| "Another operation is running")?;
+        let root = self.writable_root()?;
+        let mut index = collection_index(&root).await.map_err(|e| e.to_string())?;
+        let (kind, original, _) = self.draft(revision, &[])?;
+        if kind != DocumentKind::HttpRequest {
+            return Err("Select an HTTP request".into());
+        }
+        let path = original.path().to_owned();
+        let relative = path
+            .strip_prefix(&root)
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/");
+        if !index.requests.contains(&relative) {
+            return Err("Select an indexed HTTP request".into());
+        }
+        delete_request(root, original)
+            .await
+            .map_err(|e| e.to_string())?;
+        index.requests.retain(|request| *request != relative);
+        self.inner
+            .lock()
+            .unwrap()
+            .snapshots
+            .retain(|_, (_, doc)| doc.path() != path);
+        Ok(CollectionView::from_index(index, false))
+    }
+
     pub async fn duplicate_request(
         &self,
         input: RenameRequestInput,
@@ -674,6 +827,8 @@ impl Session {
         root: PathBuf,
         paths: Vec<String>,
     ) -> Result<BTreeMap<String, RequestSummary>, String> {
+        #[cfg(feature = "native-validation")]
+        let _timing = crate::validation::Stage::start("summaries-read", paths.len());
         if paths.len() > 128 {
             return Err("Read at most 128 request summaries at a time".into());
         }
@@ -733,6 +888,8 @@ impl Session {
     }
 
     pub async fn read_request(&self, path: &str) -> Result<RequestView, String> {
+        #[cfg(feature = "native-validation")]
+        let _timing = crate::validation::Stage::start("request-read", 1);
         let _operation = self
             .operation
             .try_lock()
@@ -753,8 +910,17 @@ impl Session {
         inner
             .snapshots
             .retain(|_, (_, old)| old.path() != document.path());
+        let view = Self::request_view(kind, &document, revision);
+        inner.snapshots.insert(revision, (kind, document));
+        while inner.snapshots.len() > 8 {
+            inner.snapshots.pop_first();
+        }
+        view
+    }
+
+    fn request_view(kind: DocumentKind, document: &Document, revision: u64) -> RequestView {
         let value = document.value().clone();
-        let view = RequestView {
+        RequestView {
             revision,
             name: value["info"]["name"]
                 .as_str()
@@ -765,12 +931,7 @@ impl Session {
             url: value["http"]["url"].as_str().unwrap_or("").into(),
             diagnostics: document.diagnostics(kind),
             document: value,
-        };
-        inner.snapshots.insert(revision, (kind, document));
-        while inner.snapshots.len() > 8 {
-            inner.snapshots.pop_first();
         }
-        view
     }
 
     fn draft(
@@ -803,6 +964,29 @@ impl Session {
             .await
             .map_err(|e| e.to_string())?;
         Ok(self.snapshot(DocumentKind::Environment, document))
+    }
+
+    pub async fn read_variable_context(
+        &self,
+        path: Option<&str>,
+        environment: Option<&str>,
+    ) -> Result<Vec<VariablePreview>, String> {
+        let root = self.inner.lock().unwrap().root.clone();
+        let Some(root) = root else {
+            return Ok(Vec::new());
+        };
+        // Read-only metadata does not create snapshots or block Send/Save.
+        let loaded =
+            if let Some(path) = path {
+                load_request(&root, path, environment).await
+            } else {
+                let document = Document::from_yaml(root.join("Untitled.yml"),
+                r#"{"info":{"name":"Untitled","type":"http"},"http":{"method":"GET","url":""}}"#)
+                .map_err(|e| e.to_string())?;
+                LoadedRequest::in_collection(&root, document, environment).await
+            }
+            .map_err(|e| e.to_string())?;
+        inherited_variables(&loaded).map_err(|e| e.to_string())
     }
     pub async fn create_environment(&self, name: String) -> Result<RequestView, String> {
         let _operation = self
@@ -1012,6 +1196,16 @@ impl Session {
         }
     }
 
+    #[cfg(feature = "native-validation")]
+    pub fn validation_memory(&self) -> serde_json::Value {
+        let inner = self.inner.lock().unwrap();
+        serde_json::json!({
+            "responseBytes": inner.response.as_ref().map_or(0, |(_, response)| response.body.len()),
+            "snapshots": inner.snapshots.len(),
+            "activeRequest": inner.active.is_some(),
+        })
+    }
+
     pub fn read_response(&self, id: u64, offset: usize) -> Result<String, String> {
         let inner = self.inner.lock().unwrap();
         let (current, response) = inner.response.as_ref().ok_or("No response is available")?;
@@ -1023,6 +1217,17 @@ impl Session {
         }
         let end = offset.saturating_add(CHUNK_BYTES).min(response.body.len());
         Ok(base64::engine::general_purpose::STANDARD.encode(&response.body[offset..end]))
+    }
+
+    pub fn release_response(&self, id: u64) {
+        let mut inner = self.inner.lock().unwrap();
+        if inner
+            .response
+            .as_ref()
+            .is_some_and(|(current, _)| *current == id)
+        {
+            inner.response = None;
+        }
     }
 }
 
