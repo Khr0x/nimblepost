@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { Compartment, EditorState, Prec, Transaction } from '@codemirror/state';
-  import { Decoration, EditorView, MatchDecorator, ViewPlugin, activateHover, closeHoverTooltips, drawSelection, hoverTooltip, keymap, lineNumbers } from '@codemirror/view';
+  import { Decoration, EditorView, MatchDecorator, ViewPlugin, activateHover, closeHoverTooltips, drawSelection, hoverTooltip, keymap, lineNumbers, tooltips } from '@codemirror/view';
   import { acceptCompletion, autocompletion, closeBrackets, closeBracketsKeymap, pickedCompletion, startCompletion, type CompletionContext } from '@codemirror/autocomplete';
   import type { VariablePreview } from '$lib/desktop/api';
   import { defaultKeymap, history, historyKeymap, isolateHistory, redo, redoDepth, undo, undoDepth } from '@codemirror/commands';
@@ -25,6 +25,7 @@
   let canUndo = $state(false), canRedo = $state(false);
   let formatIssue = $state('');
   let completionFrame = 0;
+  let variableForm: HTMLFormElement | null = null;
   const language = new Compartment(), access = new Compartment(), variableSupport = new Compartment();
   const variableNames = $derived(new Map(variables.map(variable => [variable.name, variable])));
   const variablePattern = () => /\{\{[ \t]*([\w.-]+)[ \t]*\}\}/g;
@@ -68,6 +69,7 @@
       return { pos: from, end: to, above: true, arrow: true, create() {
         const variable = variableNames.get(name), secret = variable?.secret ?? false;
         const dom = document.createElement('form'); dom.className = 'cm-variable-hover';
+        variableForm = dom;
         dom.setAttribute('aria-label', `Variable ${name}`);
         const title = document.createElement('strong'); title.textContent = `{{${name}}}`;
         const source = document.createElement('small'); source.textContent = origin(variable);
@@ -96,7 +98,7 @@
           if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); view.dispatch({ effects: closeHoverTooltips }); view.focus(); }
           if (event.key === 'Enter') event.stopPropagation();
         });
-        return { dom, update: syncAccess };
+        return { dom, update: syncAccess, destroy() { if (variableForm === dom) variableForm = null; } };
       } };
     }
     return null;
@@ -165,10 +167,11 @@
       EditorView.clipboardInputFilter.of((text, state) => text.replace(/\r\n?|\n/g, state.lineBreak)),
       lineNumbers(), drawSelection(), bracketMatching(), indentOnInput(), indentUnit.of('  '),
       history(), keymap.of([...historyKeymap, ...searchKeymap, ...defaultKeymap]), search({ top: true }),
-      variableSupport.of(variableExtensions()), variableHover,
+      // Keep tooltips outside the editor's clipped and scrollable containers.
+      tooltips({ parent: document.body }), variableSupport.of(variableExtensions()), variableHover,
       Prec.high(keymap.of([{ key: 'Tab', run: acceptCompletion }, { key: 'Alt-Enter', run: view => {
         activateHover(view, view.state.selection.main.head, 1);
-        requestAnimationFrame(() => view.dom.querySelector<HTMLElement>('.cm-variable-hover input, .cm-variable-hover textarea')?.focus());
+        requestAnimationFrame(() => variableForm?.querySelector<HTMLElement>('input, textarea')?.focus());
         return true;
       } }])),
       syntaxHighlighting(colors), theme, language.of(languageSupport(bodyType)), access.of(editing(disabled)),

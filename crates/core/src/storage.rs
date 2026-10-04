@@ -148,7 +148,10 @@ fn allowed(kind: DocumentKind, path: &[String]) -> bool {
             variable_path(rest)
         }
         ["name"] if kind == DocumentKind::Environment => true,
-        ["variables", rest @ ..] if kind == DocumentKind::Environment => variable_path(rest),
+        ["variables", rest @ ..] if kind == DocumentKind::Environment => {
+            variable_path(rest)
+                || matches!(rest, [index, "description"] | [index, "description", "content"] if index.parse::<usize>().is_ok())
+        }
         _ => false,
     }
 }

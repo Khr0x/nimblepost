@@ -7,13 +7,15 @@
   import { readTheme, saveTheme, type Theme } from '$lib/layout/theme';
   import { SIDEBAR_MIN_WIDTH, sidebarMaxWidth, clampSidebarWidth, readSidebarWidth, saveSidebarWidth } from '$lib/layout/sidebar';
   import { RESPONSE_DEFAULT_HEIGHT, responseMinHeight, responseMaxHeight, clampResponseHeight, readResponseHeight, saveResponseHeight } from '$lib/features/responses/response-layout';
-  import { api, type Collection, type CollectionChange, type WorkspaceView, type ResponseMeta, type HistoryView, type RequestInfo, type RequestSummary } from '$lib/desktop/api';
+  import { api, type Collection, type CollectionChange, type WorkspaceView, type ResponseMeta, type HistoryView, type RequestInfo, type RequestSummary, type VariablePreview } from '$lib/desktop/api';
   import { fileTree, type TreeNode, type TreeKind } from '$lib/features/collections/tree';
   import CollectionTree from '$lib/features/collections/CollectionTree.svelte';
   import { recordStage } from '$lib/desktop/native-profile';
-  import { draftFrom, editDraft, type Draft } from '$lib/features/requests/draft';
+  import { draftFrom, editDraft, type Draft, type Config } from '$lib/features/requests/draft';
   import { untitledDraft, refreshTabDraft, refreshExternalTab, type RequestTab } from '$lib/features/requests/request-tabs';
   import { captureRecovery, restoreRecovery, recoverAsUntitled, type RecoverySnapshot } from '$lib/features/requests/recovery';
+  import UrlInput from '$lib/features/requests/UrlInput.svelte';
+  import { editRequestUrl, requestUrlWithParams } from '$lib/features/requests/request-url';
   import RequestEditor from '$lib/features/requests/RequestEditor.svelte';
   import RequestTabs from '$lib/features/requests/RequestTabs.svelte';
   let validationHideResponseView = $state(false);
@@ -193,6 +195,8 @@
   let method = $state('GET');
   const methodOptions = $derived(Array.from(new Set([method, 'GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'])).map(value => ({ value, label: value })));
   let url = $state('');
+  let urlTyping = $state<string | null>(null);
+  $effect(() => { activeRequestTab; urlTyping = null; });
   let environment = $state('');
   const environmentOptions = $derived([{ value: '0', label: 'No environment' }, ...(collection?.environments ?? []).map((name, index) => ({ value: String(index + 1), label: name }))]);
   let baseUrl = $state('');
@@ -206,6 +210,7 @@
   let decoder = new TextDecoder();
   let selectionVersion = 0;
   let draft = $state<Draft | null>(null);
+  const displayedUrl = $derived(urlTyping ?? requestUrlWithParams(url, draft?.value.http?.params));
   let bodyEditorReset = $state(0);
   let requestTabs = $state<RequestTab[]>([]);
   let activeRequestTab = $state(0);
@@ -220,6 +225,32 @@
   const unsavedTabs = $derived(requestTabs.some(item => item.id === activeRequestTab ? !!draft?.edits.length : !!item.draft.edits.length));
   const isEdited = $derived(!!draft?.edits.length);
   let envDraft = $state<Draft | null>(null);
+  const variableContextKey = $derived(`${collection?.root ?? ''}:${selected}:${environment}:${draft?.revision ?? 0}:${envDraft?.revision ?? 0}`);
+  let inherited = $state<VariablePreview[]>([]), loadedContext = $state(''), variableIssue = $state('');
+  $effect(() => {
+    const key = variableContextKey;
+    if (!workbenchOpen) return;
+    const path = selected || null, env = environment || null;
+    let current = true;
+    inherited = []; loadedContext = ''; variableIssue = '';
+    void untrack(() => api.variables(path, env)).then(rows => {
+      if (current) { inherited = rows; loadedContext = key; }
+    }).catch(() => { if (current) variableIssue = 'Inherited variables could not be loaded. Change environment or reopen the request to retry.'; });
+    return () => { current = false; };
+  });
+  const variables = $derived.by(() => {
+    const rows = new Map((loadedContext === variableContextKey ? inherited : []).map(row => [row.name, row]));
+    for (const row of Array.isArray(draft?.value.runtime?.variables) ? draft?.value.runtime.variables : []) {
+      if (row.disabled || typeof row.name !== 'string' || !/^[\w.-]+$/.test(row.name)) continue;
+      const text = typeof row.value === 'string' ? row.value : row.value?.type === 'string' ? row.value.data : null;
+      rows.set(row.name, { name: row.name, value: row.secret ? null : typeof text === 'string' ? text : null,
+        scope: 'request', path: '', secret: row.secret === true });
+    }
+    if (baseUrl) rows.set('baseUrl', { name: 'baseUrl', value: rows.get('baseUrl')?.secret ? null : baseUrl,
+      scope: 'runtime', path: '', secret: rows.get('baseUrl')?.secret ?? false });
+    return [...rows.values()].sort((a, b) => a.name.localeCompare(b.name));
+  });
+
   let environmentOpen = $state(false);
   let EnvironmentManager = $state<typeof import('$lib/features/environments/EnvironmentManager.svelte').default | null>(null);
   let addingEnvironment = $state(false);
@@ -318,7 +349,7 @@
     if (!isTauri()) return;
     const listener = getCurrentWindow().onCloseRequested(async event => {
       if (busy || loading || chunkLoading) { event.preventDefault(); error = 'Wait for the current operation before closing this window.'; return; }
-      if (envDraft?.edits.length) { event.preventDefault(); error = 'Save or Discard your environment changes before closing this window.'; return; }
+      if (envDraft?.edits.length) { event.preventDefault(); error = 'Save or Reset your environment changes before closing this window.'; return; }
       finishRequestName();
       closingWindow = true; loading = true;
       const saved = !!workspace && await persistRecovery(captureRecovery(workspace.activeWorkspaceId, requestTabs, activeRequestTab, draft, environment, home));
@@ -524,9 +555,27 @@
       pruneSummaries(collection.root, attempts);
     }
   }
+  function editVariable(name: string, text: string) {
+    if (!draft || busy || loading) return;
+    const variable = variables.find(row => row.name === name);
+    if (variable?.scope === 'runtime') { baseUrl = text; return; }
+    if (variable?.secret) { secrets[name] = text; return; }
+    const rows = Array.isArray(draft.value.runtime?.variables) ? draft.value.runtime.variables : [];
+    const index = rows.findIndex((row: Config) => row.name === name && !row.disabled);
+    if (index < 0) change(['runtime', 'variables'], [...rows, { name, value: text }]);
+    else change(['runtime', 'variables', String(index), 'value', ...(typeof rows[index].value === 'object' && rows[index].value?.type === 'string' ? ['data'] : [])], text);
+  }
   function change(path: string[], value: unknown) {
     if (!draft) return;
+    if (path[0] === 'http' && ['url', 'params'].includes(path[1])) urlTyping = null;
     editDraft(draft, path, value); requestName = draft.value.info?.name ?? requestName; method = draft.value.http?.method ?? method; url = draft.value.http?.url ?? url; notice = '';
+  }
+  function changeRequestUrl(text: string) {
+    if (!draft || busy || loading) return;
+    editRequestUrl(draft, text);
+    url = draft.value.http?.url ?? '';
+    urlTyping = text;
+    notice = '';
   }
   async function editRequestName() {
     if (!draft || busy || loading || (!untitled && collection?.readOnly)) return;
@@ -594,11 +643,11 @@
     (environmentOpen ? document.querySelector<HTMLElement>('#environment-manager-heading') : environmentMenuTrigger)?.focus();
   }
   function canLeaveEnvironment() {
-    if (envDraft?.edits.length) { error = 'Save or Discard your environment changes before leaving or switching environments.'; return false; }
+    if (envDraft?.edits.length) { error = 'Save or Reset your environment changes before leaving or switching environments.'; return false; }
     return true;
   }
   async function chooseEnvironment(name: string) {
-    if (busy || loading || name === environment || !canLeaveEnvironment()) return;
+    if (busy || loading || name === environment || (name && !collection?.environments.includes(name)) || !canLeaveEnvironment()) return;
     error = '';
     await environmentChanged(name);
   }
@@ -1022,8 +1071,8 @@
     <div class="brand"><img class="brand-mark" src={theme === 'dark' ? brandDark : brandLight} width="18" height="18" alt="" /><span class="brand-wordmark">Nimble<span class="brand-post">Post</span></span><span class="alpha">ALPHA</span></div>
   </header>
   {#if recoveryWarning || watchWarning}<div>{#if recoveryWarning}<div class="error recovery-warning" role="alert">{recoveryWarning}</div>{/if}{#if watchWarning}<div class="error recovery-warning" role="alert">{watchWarning}</div>{/if}</div>{/if}
-  <div class="workspace" class:resizing-sidebar={resizingSidebar} style:--sidebar-width={`${visibleSidebarWidth}px`}>
-    <aside id="collection-sidebar">
+  <div class="workspace" class:environment-workspace={environmentOpen} class:resizing-sidebar={resizingSidebar} style:--sidebar-width={`${visibleSidebarWidth}px`}>
+    <aside id="collection-sidebar" hidden={environmentOpen}>
       <div class="aside-heading"><span class="aside-title"><Folder size={14} aria-hidden="true" />Collections</span><div class="collection-actions"><Button variant="ghost" size="icon-sm" aria-label="Refresh collections" title="Refresh collections from disk" onclick={() => queueExternalRefresh()} disabled={busy || loading}><RotateCcw aria-hidden="true" /></Button><Button variant="ghost" size="icon-sm" aria-label="New collection" title="New collection" onclick={() => beginCreate('collection')} disabled={busy || loading}><FolderPlus aria-hidden="true" /></Button><Button variant="ghost" size="icon-sm" aria-label="Open collection" title="Open collection" onclick={() => open()} disabled={busy || loading}><FolderOpen aria-hidden="true" /></Button></div></div>
       <span class="sr-only" role="status">{busy ? 'Request in progress. Collections are temporarily unavailable.' : loading ? 'Loading. Collections are temporarily unavailable.' : ''}</span>
       {#if workspace?.warning}<p class="workspace-warning" role="alert">{workspace.warning}</p>{/if}
@@ -1057,14 +1106,14 @@
       <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
       <div class="sidebar-resizer" role="separator" tabindex="0" aria-label="Resize collection sidebar" aria-orientation="vertical" aria-controls="collection-sidebar" aria-valuemin={SIDEBAR_MIN_WIDTH} aria-valuemax={sidebarMaxWidth(viewportWidth)} aria-valuenow={visibleSidebarWidth} aria-valuetext={`${visibleSidebarWidth} pixels`} title="Drag to resize · Double-click to reset" onpointerdown={startSidebarResize} onpointermove={resizeSidebar} onpointerup={finishSidebarResize} onpointercancel={finishSidebarResize} onlostpointercapture={finishSidebarResize} onkeydown={sidebarResizeKey} ondblclick={resetSidebarWidth}></div>
     </aside>
-    <main class:request-workbench={!home && !manageWorkspacesOpen && !environmentOpen}>
+    <main class:environment-page={environmentOpen} class:request-workbench={!home && !manageWorkspacesOpen && !environmentOpen}>
       {#if manageWorkspacesOpen && WorkspaceManager}
         <WorkspaceManager {workspace} {error} disabled={busy || loading} onback={closeWorkspaceManager} onrename={(id) => beginWorkspaceAction('rename', id)} ondelete={(id) => beginWorkspaceAction('delete', id)} />
       {/if}
       {#if environmentOpen && EnvironmentManager && collection}
-        <EnvironmentManager {collection} {environment} draft={envDraft} {baseUrl} {error} saved={environmentSaved} disabled={busy || loading}
+        <EnvironmentManager {collection} {environment} draft={envDraft} {error} saved={environmentSaved} disabled={busy || loading}
           onback={closeEnvironment} onselect={chooseEnvironment} oncreate={() => { void manageEnvironment(true); }} onsave={saveEnvironment}
-          ondiscard={() => { void discardEnvironment().catch(e => error = String(e)); }} onedit={(path, value) => { if (envDraft) editDraft(envDraft, path, value); }} onbaseurlchange={value => baseUrl = value} />
+          ondiscard={() => { void discardEnvironment().catch(e => error = String(e)); }} onedit={(path, value) => { if (envDraft) editDraft(envDraft, path, value); }} />
       {/if}
       <div class="request-view" hidden={manageWorkspacesOpen || environmentOpen}>
       {#if !home}
@@ -1094,16 +1143,15 @@
         <form class="request-bar" onsubmit={(e) => { e.preventDefault(); void send(); }}>
           <div class="request-target">
           <Select.Root type="single" value={method} items={methodOptions} allowDeselect={false} disabled={busy || loading} onValueChange={(value) => change(['http', 'method'], value)}><Select.Trigger class="request-method-select" aria-label="HTTP method" data-method={method.toUpperCase()}><Select.Value class="http-method" data-method={method.toUpperCase()} /></Select.Trigger><Select.Content align="start">{#each methodOptions as option}<Select.Item value={option.value} label={option.label}><span class="http-method" data-method={option.value.toUpperCase()}>{option.label}</span></Select.Item>{/each}</Select.Content></Select.Root>
-          <Input class="h-full rounded-none" aria-label="Request URL" value={url} oninput={(e) => change(['http', 'url'], e.currentTarget.value)} placeholder="https://api.example.com" disabled={busy || loading} required />
+          <UrlInput value={displayedUrl} {variables} onvariableedit={editVariable} disabled={busy || loading} onchange={changeRequestUrl} onblur={() => urlTyping = null} />
           </div>
           {#if busy}<Button type="button" variant="secondary" size="lg" onclick={cancel}><LoaderCircle class="animate-spin" aria-hidden="true" />Cancel</Button>{:else}<Button type="submit" size="lg" disabled={loading || chunkLoading || !!activeExternalChange}><Send aria-hidden="true" />Send</Button>{/if}
         </form>
         {#if error}<div class="error" role="alert">{error}</div>{/if}
         {#if draft?.diagnostics.length}<div class="error">{draft.diagnostics.join('\n')} · Incompatible fields are retained; execution may be blocked.</div>{/if}
         {#if draft}<RequestEditor value={draft.value} requestId={activeRequestTab} {bodyEditorReset} disabled={busy || loading} onedit={change}
-          variableContextKey={`${collection?.root ?? ''}:${selected}:${environment}:${draft.revision}:${envDraft?.revision ?? 0}`}
-          loadvariables={() => api.variables(selected || null, environment || null)} {baseUrl} providedSecrets={Object.keys(secrets)}
-          onsecretchange={(name, value) => { secrets[name] = value; }} onbaseurlchange={value => { baseUrl = value; }} />{/if}
+          {variables} {variableIssue} variablesLoading={!variableIssue && loadedContext !== variableContextKey} providedSecrets={Object.keys(secrets)}
+          onvariableedit={editVariable} />{/if}
         {#if secretNames.length}<Collapsible.Root class="secrets-panel"><Collapsible.Trigger class="secrets-trigger">Secrets · memory only ({secretNames.length})</Collapsible.Trigger><Collapsible.Content><p>These values are used at Send. They are never saved to YAML or history.</p>{#each secretNames as name}<label>{name}<Input type="password" aria-label={`Secret ${name}`} bind:value={secrets[name]} disabled={busy || loading} autocomplete="off" /></label>{/each}</Collapsible.Content></Collapsible.Root>{/if}
         {#if response?.historyWarning}<div class="error">HTTP completed; history could not be saved: {response.historyWarning}</div>{/if}
         </div>

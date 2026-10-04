@@ -184,10 +184,13 @@ reemplazar su valor solo en memoria, sin mostrarlo ni guardarlo en YAML/historia
 El selector **Environment** reúne la selección, **Create environment** y
 **Manage environments**, con el mismo menú que Workspace. La creación pide solo
 el nombre, selecciona el environment nuevo y cierra el formulario. La gestión
-abre una página propia y conserva el request al regresar. La tabla agrega una
+abre una página propia con lista lateral y búsqueda, limitada a los environments
+de la colección activa, y conserva el request al regresar. La tabla permite
+editar Name, Value y Description, y agrega una
 fila vacía al escribir, como Variables de request, y permite habilitar, editar,
-eliminar y declarar secretos. Save/Discard protege los cambios al regresar o
-seleccionar otro environment.
+eliminar y declarar secretos. Save/Reset protege los cambios al regresar o
+seleccionar otro environment. La selección aparece marcada en la lista; Save y
+Reset guardan o descartan el borrador.
 `baseUrl override` es transitorio y tiene prioridad sobre el YAML.
 
 **Send** o Ctrl/Cmd+Enter ejecuta el borrador mediante el core

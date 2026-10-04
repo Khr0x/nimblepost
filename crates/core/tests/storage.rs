@@ -525,9 +525,38 @@ async fn environments_preserve_secret_declarations_and_refuse_overwrite_or_escap
         .await
         .unwrap();
     let changed = doc.edited(DocumentKind::Environment, &[edit(&["variables"], Some(json!([
-        {"name":"baseUrl","value":"http://127.0.0.1:3000"}, {"name":"token","secret":true,"type":"string"}
+        {"name":"baseUrl","value":"http://127.0.0.1:3000","description":"API address"},
+        {"name":"token","secret":true,"type":"string","description":{"type":"text/markdown","content":"Credential"}}
     ])))]).unwrap();
     let saved = save_document(doc, changed).await.unwrap();
+    let described = saved
+        .edited(
+            DocumentKind::Environment,
+            &[
+                edit(
+                    &["variables", "0", "description"],
+                    Some(json!("QA API address")),
+                ),
+                edit(
+                    &["variables", "1", "description", "content"],
+                    Some(json!("Runtime credential")),
+                ),
+            ],
+        )
+        .unwrap();
+    let saved = save_document(saved, described).await.unwrap();
+    assert_eq!(
+        saved.value()["variables"][0]["description"],
+        "QA API address"
+    );
+    assert_eq!(
+        saved.value()["variables"][1]["description"],
+        json!({"type":"text/markdown","content":"Runtime credential"})
+    );
+    assert_eq!(
+        saved.value()["variables"][0]["value"],
+        "http://127.0.0.1:3000"
+    );
     assert!(saved.value()["variables"][1].get("value").is_none());
     let edited = saved
         .edited(
