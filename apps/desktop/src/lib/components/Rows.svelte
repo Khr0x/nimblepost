@@ -4,24 +4,19 @@
   import { Button } from '$lib/components/ui/button';
   import { Checkbox } from '$lib/components/ui/checkbox';
   import { Input } from '$lib/components/ui/input';
-  import { Plus, Trash2 } from '@lucide/svelte';
+  import { Trash2 } from '@lucide/svelte';
   let { rows = [], path, mode, disabled = false, environment = false, onedit }: {
     rows?: Row[]; path: string[]; mode: 'headers' | 'params' | 'variables'; disabled?: boolean;
     environment?: boolean; onedit: (path: string[], value: unknown) => void;
   } = $props();
-  const automaticRows = $derived(!environment);
   const emptyRow = $derived<Row>(mode === 'params' ? { name: '', value: '', type: 'query' } : { name: '', value: '' });
-  const visibleRows = $derived(automaticRows ? [...rows, emptyRow] : rows);
+  const visibleRows = $derived([...rows, emptyRow]);
   function set(index: number, key: string, value: unknown) {
-    if (automaticRows && index === rows.length) {
+    if (index === rows.length) {
       if (value === '') return;
       const row = { ...emptyRow, [key]: value };
       onedit(index ? [...path, String(index)] : path, index ? row : [row]);
     } else onedit([...path, String(index), key], value);
-  }
-  function add() {
-    const row: Row = { name: '', value: '' };
-    onedit(rows.length ? [...path, String(rows.length)] : path, rows.length ? row : [row]);
   }
   function secret(index: number, active: boolean) {
     if (active) { set(index, 'value', null); set(index, 'secret', true); set(index, 'type', 'string'); }
@@ -37,10 +32,9 @@
       <Table.Cell>{#if index < rows.length}<Checkbox aria-label={`Enable ${mode} row ${index + 1}`} checked={!row.disabled} {disabled} onCheckedChange={(checked) => set(index, 'disabled', !checked)} />{/if}</Table.Cell>
       <Table.Cell><Input class="h-[28px]" aria-label={`${mode} name ${index + 1}`} value={row.name ?? ''} {disabled} oninput={(e) => set(index, 'name', e.currentTarget.value)} placeholder={mode === 'headers' ? 'Header name' : 'Name'} /></Table.Cell>
       <Table.Cell><Input class="h-[28px]" aria-label={`${mode} value ${index + 1}`} value={row.secret ? '' : text(row)} disabled={disabled || !!row.secret || (typeof row.value !== 'string' && row.value !== undefined && row.value?.type !== 'string')} placeholder={row.secret ? 'Supplied in memory at Send' : 'Value or {{variable}}'} oninput={(e) => row.value?.type === 'string' ? onedit([...path, String(index), 'value', 'data'], e.currentTarget.value) : set(index, 'value', e.currentTarget.value)} /></Table.Cell>
-      {#if environment}<Table.Cell><Checkbox aria-label={`Secret variable ${index + 1}`} checked={!!row.secret} {disabled} onCheckedChange={(checked) => secret(index, checked)} /></Table.Cell>{/if}
+      {#if environment}<Table.Cell>{#if index < rows.length}<Checkbox aria-label={`Secret variable ${index + 1}`} checked={!!row.secret} {disabled} onCheckedChange={(checked) => secret(index, checked)} />{/if}</Table.Cell>{/if}
       <Table.Cell>{#if index < rows.length}<Button variant="ghost" size="icon-sm" class="size-[28px]" aria-label={`Remove ${mode} row ${index + 1}`} {disabled} onclick={() => onedit([...path, String(index)], null)}><Trash2 aria-hidden="true" /></Button>{/if}</Table.Cell>
     </Table.Row>{/each}</Table.Body>
   </Table.Root>
   </div>
-  {#if !automaticRows}<Button variant="outline" size="sm" class="mt-2" {disabled} onclick={add}><Plus aria-hidden="true" />Add variable</Button>{/if}
 </div>

@@ -32,12 +32,15 @@ NimblePost keeps your collections in your own folders, with a desktop app built
 on Tauri and Svelte and a Rust engine shared by the desktop app and CLI.
 
 **Status: ALPHA.** The HTTP/HTTPS workflow is functional and under active
-development. Native release validation on Windows and Linux, and performance
-benchmarks, are still pending.
+development. Windows and Linux x64 CI checks cover production installers and
+native startup; execution on those targets is still pending. See the
+[native distribution checks](apps/desktop/README.md#rendimiento-y-distribución-nativa).
 
 ## What you can do
 
 - Organize multiple collections in local workspaces, with folders and request tabs.
+- Refresh the tree automatically after external editor or Git changes, while
+  keeping edited requests protected with reload and save-copy options.
 - Create requests from the sidebar or start an untitled request and choose where
   to save it later.
 - Edit query parameters, headers, variables, environments and JSON/text/XML bodies.
@@ -62,7 +65,9 @@ or deleting a workspace keeps its collection files on disk.
 Declared secrets can be supplied in memory for execution. Use variable templates
 such as `{{token}}` in saved requests. History retains metadata for the last
 200 executions and excludes URLs, credentials, variable values, headers and
-request/response bodies. Unsaved drafts are not restored after restarting the app.
+request/response bodies. Request tabs and unsaved drafts are restored after
+restarting from a separate local recovery file. Runtime secrets and responses
+are excluded from that backup.
 
 ## Run the desktop app
 

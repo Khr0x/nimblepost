@@ -65,6 +65,8 @@ test('real Changesets versioning synchronizes the app, detects release merges an
     command('notes', plan.version, notes);
     assert.match(readFileSync(notes, 'utf8'), /Fix request editing/);
     assert.match(readFileSync(notes, 'utf8'), /ad-hoc signing/);
+    assert.match(readFileSync(notes, 'utf8'), /drafts are recovered locally/);
+    assert.doesNotMatch(readFileSync(notes, 'utf8'), /drafts are not restored/);
     rmSync(notes);
     assert.equal(JSON.parse(command('batch', git(['rev-parse', 'HEAD']))).pending, false);
 

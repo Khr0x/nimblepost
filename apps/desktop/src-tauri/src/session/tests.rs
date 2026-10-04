@@ -9,6 +9,282 @@ fn example() -> PathBuf {
 }
 
 #[tokio::test]
+async fn variable_context_uses_inherited_scopes_without_secrets_or_snapshot_changes() {
+    let directory = tempfile::tempdir().unwrap();
+    let session = Session::default();
+    assert!(
+        session
+            .read_variable_context(None, None)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let collection = session
+        .create_collection(
+            directory.path().into(),
+            "Variables".into(),
+            "variables".into(),
+        )
+        .await
+        .unwrap();
+    let root = PathBuf::from(&collection.root);
+    std::fs::write(root.join("opencollection.yml"), "opencollection: '1.0.0'\ninfo: {name: Variables}\nrequest:\n  variables: [{name: shared, value: collection}, {name: global, value: public}]\n").unwrap();
+    std::fs::create_dir(root.join("users")).unwrap();
+    std::fs::write(root.join("users/folder.yml"), "info: {name: Users, type: folder}\nrequest:\n  variables: [{name: shared, value: folder}, {name: service, value: {type: string, data: users}}]\n").unwrap();
+    std::fs::write(root.join("users/request.yml"), "info: {name: Request, type: http}\nhttp: {method: GET, url: '{{shared}}'}\nruntime:\n  variables: [{name: shared, value: request}]\n").unwrap();
+    std::fs::create_dir(root.join("environments")).unwrap();
+    std::fs::write(root.join("environments/local.yml"), "name: local\nvariables: [{name: shared, value: environment}, {name: token, secret: true, type: string}, {name: disabled, value: ignored, disabled: true}]\n").unwrap();
+    let draft = session.read_request("users/request.yml").await.unwrap();
+    let rows = session
+        .read_variable_context(Some("users/request.yml"), Some("local"))
+        .await
+        .unwrap();
+    let shared = rows.iter().find(|row| row.name == "shared").unwrap();
+    assert_eq!(shared.scope, "environment");
+    assert_eq!(
+        shared.value.as_deref(),
+        Some("environment"),
+        "request draft overrides are resolved by the editor"
+    );
+    assert_eq!(
+        rows.iter().find(|row| row.name == "service").unwrap().scope,
+        "folder"
+    );
+    assert_eq!(
+        rows.iter().find(|row| row.name == "global").unwrap().scope,
+        "collection"
+    );
+    let token = rows.iter().find(|row| row.name == "token").unwrap();
+    assert!(token.secret && token.value.is_none());
+    assert!(!rows.iter().any(|row| row.name == "disabled"));
+    assert!(session.draft(draft.revision, &[]).is_ok());
+    let folder = session
+        .read_variable_context(Some("users/request.yml"), None)
+        .await
+        .unwrap();
+    assert_eq!(
+        folder
+            .iter()
+            .find(|row| row.name == "shared")
+            .unwrap()
+            .scope,
+        "folder"
+    );
+    let untitled = session
+        .read_variable_context(None, Some("local"))
+        .await
+        .unwrap();
+    assert!(!untitled.iter().any(|row| row.name == "service"));
+    assert!(
+        session
+            .read_variable_context(Some("../escape.yml"), None)
+            .await
+            .is_err()
+    );
+}
+
+#[tokio::test]
+async fn external_refresh_updates_all_trees_without_switching_roots_or_replacing_draft_revisions() {
+    let directory = tempfile::tempdir().unwrap();
+    let session = Session::default();
+    let first = session
+        .create_collection(directory.path().into(), "First".into(), "first".into())
+        .await
+        .unwrap();
+    let second = session
+        .create_collection(directory.path().into(), "Second".into(), "second".into())
+        .await
+        .unwrap();
+    let root = PathBuf::from(&second.root);
+    let value = serde_json::json!({"info":{"name":"Request","type":"http"},"http":{"method":"GET","url":"https://example.com"}});
+    let source = serde_json::to_string(&value).unwrap();
+    std::fs::write(root.join("request.yml"), &source).unwrap();
+    let draft = session.read_request("request.yml").await.unwrap();
+    std::fs::create_dir(Path::new(&first.root).join("nested")).unwrap();
+    std::fs::write(Path::new(&first.root).join("nested/added.yml"), &source).unwrap();
+    let result = session.refresh_collections().await.unwrap();
+    assert_eq!(
+        result.active_collection.as_deref(),
+        Some(second.root.as_str())
+    );
+    assert_eq!(result.collections[0].requests, ["nested/added.yml"]);
+    assert_eq!(result.collections[0].folders, ["nested"]);
+    assert!(session.draft(draft.revision, &[]).is_ok());
+    assert_eq!(
+        session
+            .inspect_request(root.clone(), "request.yml".into(), draft.revision)
+            .await
+            .unwrap()
+            .changed,
+        Some(false)
+    );
+    std::fs::write(
+        root.join("request.yml"),
+        format!("{source}\n# external editor\n"),
+    )
+    .unwrap();
+    let inspected = session
+        .inspect_request(root.clone(), "request.yml".into(), draft.revision)
+        .await
+        .unwrap();
+    assert_eq!(
+        inspected.changed,
+        Some(true),
+        "format-only changes are detected too"
+    );
+    assert_eq!(inspected.request.document, value);
+    assert!(
+        session.draft(draft.revision, &[]).is_ok(),
+        "inspection must preserve the old CST and revision"
+    );
+    assert!(
+        session
+            .save(SaveInput {
+                revision: draft.revision,
+                edits: vec![FieldEdit {
+                    path: vec!["http".into(), "url".into()],
+                    value: Some(serde_json::json!("https://example.com/draft"))
+                }]
+            })
+            .await
+            .is_err()
+    );
+    assert!(
+        std::fs::read_to_string(root.join("request.yml"))
+            .unwrap()
+            .contains("external editor")
+    );
+    std::fs::rename(
+        Path::new(&first.root).join("nested/added.yml"),
+        Path::new(&first.root).join("renamed.yml"),
+    )
+    .unwrap();
+    assert_eq!(
+        session.refresh_collections().await.unwrap().collections[0].requests,
+        ["renamed.yml"]
+    );
+    std::fs::write(root.join("request.yml"), "info: [unterminated").unwrap();
+    assert!(
+        session
+            .inspect_request(root.clone(), "request.yml".into(), draft.revision)
+            .await
+            .is_err()
+    );
+    assert!(session.draft(draft.revision, &[]).is_ok());
+    std::fs::rename(root.join("opencollection.yml"), root.join("config.backup")).unwrap();
+    let unavailable = session.refresh_collections().await.unwrap();
+    assert!(unavailable.collections[1].warning.is_some());
+    assert_eq!(session.root().unwrap(), root);
+    assert!(session.draft(draft.revision, &[]).is_ok());
+    std::fs::rename(root.join("config.backup"), root.join("opencollection.yml")).unwrap();
+    assert!(
+        session.refresh_collections().await.unwrap().collections[1]
+            .warning
+            .is_none()
+    );
+    assert!(
+        session
+            .inspect_request(
+                directory.path().into(),
+                "request.yml".into(),
+                draft.revision
+            )
+            .await
+            .is_err()
+    );
+    assert!(
+        session
+            .inspect_request(root, "../first/renamed.yml".into(), draft.revision)
+            .await
+            .is_err()
+    );
+}
+
+#[tokio::test]
+async fn deletes_only_selected_requests_and_invalidates_their_revisions() {
+    let directory = tempfile::tempdir().unwrap();
+    let session = Session::default();
+    let collection = session
+        .create_collection(directory.path().into(), "API".into(), "api".into())
+        .await
+        .unwrap();
+    session
+        .create_folder("".into(), "Users".into(), "users".into())
+        .await
+        .unwrap();
+    for folder in ["", "users"] {
+        session
+            .create_request(CreateRequestInput {
+                document: None,
+                name: "List".into(),
+                file_name: "list".into(),
+                method: "GET".into(),
+                url: "https://example.com".into(),
+                folder: folder.into(),
+                edits: vec![],
+            })
+            .await
+            .unwrap();
+    }
+    let keep = session.read_request("list.yml").await.unwrap();
+    let target = session.read_request("users/list.yml").await.unwrap();
+    assert!(
+        session
+            .delete_request(u64::MAX)
+            .await
+            .err()
+            .unwrap()
+            .contains("expired")
+    );
+    let updated = session.delete_request(target.revision).await.unwrap();
+    assert_eq!(updated.requests, ["list.yml"]);
+    assert_eq!(updated.folders, ["users"]);
+    assert!(!Path::new(&collection.root).join("users/list.yml").exists());
+    assert!(
+        session
+            .draft(target.revision, &[])
+            .err()
+            .unwrap()
+            .contains("expired")
+    );
+    assert!(session.draft(keep.revision, &[]).is_ok());
+    assert_eq!(
+        session.read_workspace().await.unwrap().collections[0].requests,
+        ["list.yml"]
+    );
+    let original = Path::new(&collection.root).join("list.yml");
+    let bytes = std::fs::read_to_string(&original).unwrap();
+    std::fs::write(&original, format!("{bytes}# external change\n")).unwrap();
+    assert!(session.delete_request(keep.revision).await.is_err());
+    assert!(original.exists());
+    assert!(session.draft(keep.revision, &[]).is_ok());
+    let environment = session.create_environment("local".into()).await.unwrap();
+    assert!(
+        session
+            .delete_request(environment.revision)
+            .await
+            .err()
+            .unwrap()
+            .contains("HTTP request")
+    );
+    assert!(
+        Path::new(&collection.root)
+            .join("environments/local.yml")
+            .exists()
+    );
+    let read_only = session.open_example(example()).await.unwrap();
+    let request = session.read_request(&read_only.requests[0]).await.unwrap();
+    assert!(
+        session
+            .delete_request(request.revision)
+            .await
+            .err()
+            .unwrap()
+            .contains("read-only")
+    );
+}
+
+#[tokio::test]
 async fn renames_and_removes_workspaces_without_touching_collection_files() {
     let directory = tempfile::tempdir().unwrap();
     let storage = directory.path().join("workspaces.json");
@@ -20,6 +296,7 @@ async fn renames_and_removes_workspaces_without_touching_collection_files() {
         .unwrap();
     session
         .create_request(CreateRequestInput {
+            document: None,
             edits: Vec::new(),
             folder: String::new(),
             name: "One".into(),
@@ -40,6 +317,7 @@ async fn renames_and_removes_workspaces_without_touching_collection_files() {
         .unwrap();
     let request = session
         .create_request(CreateRequestInput {
+            document: None,
             edits: Vec::new(),
             folder: String::new(),
             name: "Two".into(),
@@ -161,6 +439,7 @@ async fn workspaces_restore_multiple_collections_and_fence_revisions() {
         roots.push(PathBuf::from(collection.root));
         let created = session
             .create_request(CreateRequestInput {
+                document: None,
                 edits: Vec::new(),
                 name: name.into(),
                 file_name: "list".into(),
@@ -318,6 +597,7 @@ async fn sidebar_summaries_read_names_and_methods_without_opening_documents() {
     ] {
         session
             .create_request(CreateRequestInput {
+                document: None,
                 edits: Vec::new(),
                 name: name.into(),
                 file_name: file.into(),
@@ -588,6 +868,7 @@ async fn creates_a_collection_and_request_then_saves_sends_and_reopens_it() {
     assert!(
         session
             .create_request(CreateRequestInput {
+                document: None,
                 edits: Vec::new(),
                 folder: String::new(),
                 name: "Test".into(),
@@ -618,6 +899,7 @@ async fn creates_a_collection_and_request_then_saves_sends_and_reopens_it() {
     });
     let created = session
         .create_request(CreateRequestInput {
+            document: None,
             edits: Vec::new(),
             folder: String::new(),
             name: "List users".into(),
@@ -664,6 +946,7 @@ async fn creates_a_collection_and_request_then_saves_sends_and_reopens_it() {
     assert!(
         session
             .create_request(CreateRequestInput {
+                document: None,
                 edits: Vec::new(),
                 folder: String::new(),
                 name: "Test".into(),
@@ -696,6 +979,7 @@ async fn organizes_nested_requests_and_rejects_read_only_or_expired_revisions() 
     assert_eq!(folders.folders, ["users"]);
     let created = session
         .create_request(CreateRequestInput {
+            document: None,
             edits: Vec::new(),
             folder: "users".into(),
             name: "List".into(),
@@ -870,6 +1154,15 @@ async fn uses_core_for_selection_transient_edits_execution_and_chunked_response(
         "GET"
     );
     assert!(session.inner.lock().unwrap().active.is_none());
+    session.release_response(meta.id + 1);
+    assert!(
+        session.read_response(meta.id, 0).is_ok(),
+        "Closing an older tab cannot release the current response"
+    );
+    session.release_response(meta.id);
+    session.release_response(meta.id);
+    assert!(session.inner.lock().unwrap().response.is_none());
+    assert!(session.read_response(meta.id, 0).is_err());
     server.await.unwrap();
 }
 
