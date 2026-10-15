@@ -55,7 +55,7 @@ export async function responseWorkspace(directory, url, diagnostics = false, fin
   await save(join(directory, 'profile/recovery.json'), { version: 1, workspaceId: 1, activeTab: null, home: true, tabs: [] });
   await save(join(directory, 'plan.json'), { responses: true, url, ...(diagnostics ? { responseDiagnostics: true } : {}), ...(fineProfile ? { fineProfile:true } : {}) });
 }
-async function runLaunch(binary, sha, server, iteration, checkpoint, allocatorLibrary, fineProfile) {
+async function runLaunch(binary, sha, server, iteration, checkpoint, allocatorLibrary, fineProfile, heapRequested) {
   const directory = await mkdtemp(join(tmpdir(), 'nimblepost-responses-'));
   const pageSize = Number(command('getconf', ['PAGESIZE'])), hz = Number(command('getconf', ['CLK_TCK']));
   let child, known = [], startTicks, sampling, stopped = false, sampleError, stderr = '', heapSession, outcome;
@@ -82,9 +82,11 @@ async function runLaunch(binary, sha, server, iteration, checkpoint, allocatorLi
     assert.equal(ready.buildSha, sha); assert.equal(ready.debugAssertions, false); assert.equal(ready.inspector, false);
     assert.equal(ready.payload.error, ''); assert.equal(ready.payload.requests, 100);
     if (fineProfile) {
-      known=await family(child.pid,null,pageSize,hz);
-      const webkit=known.filter(p=>/^WebKitWebProces/.test(p.name)); assert.equal(webkit.length,1);
-      heapSession=await attachHeapProfile(webkit[0],directory,pageSize,hz);
+      if (heapRequested) {
+        known=await family(child.pid,null,pageSize,hz);
+        const webkit=known.filter(p=>/^WebKitWebProces/.test(p.name)); assert.equal(webkit.length,1);
+        heapSession=await attachHeapProfile(webkit[0],directory,pageSize,hz);
+      }
       await writeFile(join(directory,'heaptrack-ready'),'ready\n');
     }
     sampling = (async () => {
@@ -203,10 +205,12 @@ export async function main(args) {
   assert.equal(process.arch, 'x64', 'NP-013 acceptance currently supports Linux x64');
   assert(!process.env.LD_PRELOAD && !process.env.NP013_ALLOCATOR_DIAGNOSTIC_DIR, 'Do not contaminate acceptance with a preload');
   const allocatorLibrary = options['allocator-library'] ? await realpath(options['allocator-library']) : null;
-  const fineProfile=options['heap-profile']==='true'; assert(!fineProfile || allocatorLibrary,'Heap profiling requires the diagnostic mode');
+  const heapRequested=options['heap-profile']==='true', uiProfile=options['ui-profile']==='true';
+  assert(!(heapRequested && uiProfile),'Choose one fine profiling mode');
+  const fineProfile=heapRequested || uiProfile; assert(!fineProfile || allocatorLibrary,'Fine profiling requires the diagnostic mode');
   if (allocatorLibrary) assert.equal(launchCount, 1, 'Allocator diagnostics are not acceptance series');
   const server = await serveResponses();
-  const report = { schemaVersion: 1, protocol: fineProfile ? 'responses-linux-profile-v1' : allocatorLibrary ? diagnosticProtocol : responseProtocol, seriesId: randomUUID(), status: 'running', source, launchCount, launches: [],
+  const report = { schemaVersion: 1, protocol: heapRequested ? 'responses-linux-profile-v1' : uiProfile ? 'responses-linux-ui-profile-v1' : allocatorLibrary ? diagnosticProtocol : responseProtocol, seriesId: randomUUID(), status: 'running', source, launchCount, launches: [],
     mode: 'instrumented-release-ephemeral', absoluteTargetsEvaluated: false,
     binary: { sha256: hash(bytes), bytes: (await stat(binary)).size }, fixtures: server.fixtures,
     environment: { platform: process.platform, arch: process.arch, hostHash: hash(hostname()), cpu: cpus()[0].model, cpuCount: cpus().length,
@@ -217,7 +221,7 @@ export async function main(args) {
     for (let iteration = 1; iteration <= launchCount; iteration++) {
       report.launches.push(await runLaunch(binary, source.sha, server, iteration, async (phases, ready) => {
         report.partialLaunch = { iteration, ready, phases }; await save(output, report);
-      }, allocatorLibrary, fineProfile));
+      }, allocatorLibrary, fineProfile, heapRequested));
       delete report.partialLaunch; await save(output, report);
       console.log(`responses launch=${iteration}/${launchCount}`);
     }

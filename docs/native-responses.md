@@ -156,3 +156,9 @@ La captura empieza tras arrancar: no ve asignaciones previas ni todos los
 asignadores propios, y algunos símbolos pueden faltar. `Not freed` al terminar
 el proceso significa retención observada, no prueba de fuga. Ver
 [heaptrack](https://github.com/KDE/heaptrack#using-heaptrack).
+
+`response-ui-profile` repite el mismo ciclo/ablaciones/mapeos y timings sin
+heaptrack, con protocolo `responses-linux-ui-profile-v1`. Es el control para
+localizar coste UI sin inyección; nunca acredita aceptación ni se mezcla con el
+perfil intrusivo. Las diferencias entre modos dentro de una corrida orientan
+el siguiente cambio; no comparar porcentajes entre jobs/hosts diferentes.

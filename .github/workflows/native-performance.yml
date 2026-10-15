@@ -6,7 +6,7 @@ on:
       scenario:
         description: Measurement scenario
         type: choice
-        options: [startup, responses, response-diagnostics, response-profile]
+        options: [startup, responses, response-diagnostics, response-profile, response-ui-profile]
         default: startup
       launches:
         description: Launches per series (1 is responses diagnostic only)
@@ -61,7 +61,7 @@ jobs:
             }
           '
       - name: Build external allocator diagnostic (never package it)
-        if: env.SCENARIO == 'response-diagnostics' || env.SCENARIO == 'response-profile'
+        if: env.SCENARIO == 'response-diagnostics' || env.SCENARIO == 'response-profile' || env.SCENARIO == 'response-ui-profile'
         run: |
           cc -shared -fPIC -pthread -Wall -Wextra -Werror -O2 scripts/response-allocator.c -o /tmp/np013-allocator.so
       - name: Prepare fine profiling tools on the disposable runner
@@ -81,18 +81,19 @@ jobs:
           mkdir -p reports/native-performance
           case "$SCENARIO" in
             startup) runner=scripts/native-performance.mjs ;;
-            responses|response-diagnostics|response-profile) runner=scripts/native-responses.mjs ;;
+            responses|response-diagnostics|response-profile|response-ui-profile) runner=scripts/native-responses.mjs ;;
             *) exit 1 ;;
           esac
           series_names='reference candidate'
           if [ "$SCENARIO" = responses ] && [ "$LAUNCHES" = 1 ]; then series_names=diagnostic; fi
           extra_args=()
-          if [ "$SCENARIO" = response-diagnostics ] || [ "$SCENARIO" = response-profile ]; then
+          if [ "$SCENARIO" = response-diagnostics ] || [ "$SCENARIO" = response-profile ] || [ "$SCENARIO" = response-ui-profile ]; then
             series_names=diagnostic
             LAUNCHES=1
             extra_args=(--allocator-library /tmp/np013-allocator.so)
           fi
           if [ "$SCENARIO" = response-profile ]; then extra_args+=(--heap-profile true); fi
+          if [ "$SCENARIO" = response-ui-profile ]; then extra_args+=(--ui-profile true); fi
           for series in $series_names; do
             result=0
             dbus-run-session -- xvfb-run -a node "$runner" run \

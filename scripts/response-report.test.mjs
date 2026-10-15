@@ -135,5 +135,12 @@ test('The manual workflow propagates a runner failure through its actual logging
     assert.equal(diagnosticFailure.status,1);
     const profileFailure=spawnSync('bash',['--noprofile','--norc','-e','-o','pipefail','-c',step.run],{cwd:directory,encoding:'utf8',env:{...process.env,PATH:`${directory}:${process.env.PATH}`,SCENARIO:'response-profile',LAUNCHES:'5',NP013_EXIT_CODE:'1'}});
     assert.equal(profileFailure.status,1);
+    const argsFile=join(directory,'ui-args');
+    writeFileSync(join(directory,'dbus-run-session'),'#!/bin/sh\nprintf "%s\\n" "$@" >> "$NP013_ARGS_FILE"\nexit 0\n',{mode:0o755});
+    const ui=spawnSync('bash',['--noprofile','--norc','-e','-o','pipefail','-c',step.run],{cwd:directory,encoding:'utf8',env:{...process.env,PATH:`${directory}:${process.env.PATH}`,SCENARIO:'response-ui-profile',LAUNCHES:'5',NP013_ARGS_FILE:argsFile}});
+    assert.equal(ui.status,0,ui.stderr);
+    const actualArgs=readFileSync(argsFile,'utf8');
+    assert(actualArgs.includes('--launches\n1\n')); assert(actualArgs.includes('--ui-profile\ntrue\n'));
+    assert.equal(actualArgs.split('--out\n').length-1,1,'UI profiling runs one diagnostic series');
   } finally { rmSync(directory,{recursive:true,force:true}); }
 });
