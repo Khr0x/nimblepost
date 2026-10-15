@@ -13,7 +13,7 @@ function report(id = 'reference') {
     const content = identity[name === 'json' ? 'json' : name === 'line' ? 'line' : 'text'];
     const p = { index, cycle, name, actions: [], recoveryWarning: '', error: '', tabs: [], activeOffset: 0, bodyBytes: 0, activeBodyChars: 0, cachedBodyChars: 0, labels: 0, attempts: 0, treeCaches: 0 };
     if (['json','line','four-responses','after-cancel'].includes(name)) Object.assign(p, { content, activeOffset: content.bytes, bodyBytes: content.bytes });
-    if (name === 'four-responses') Object.assign(p, { tabs: Array.from({length:64}, (_, i) => i), cachedBodyChars: 2 * MiB });
+    if (name === 'four-responses') Object.assign(p, { tabs: Array.from({length:64}, (_, i) => i), cachedBodyChars: 2 * MiB, loaded:Array(4).fill(identity.text) });
     if (name === 'excess') p.error = 'La respuesta supera el límite en memoria de 16777216 bytes';
     if (name === 'after-cancel') p.actions = [{ name: 'cancel', durationMs: 50 }];
     if (name === 'json') p.actions = [{ name: 'chunk', durationMs: 40 }];
@@ -23,10 +23,11 @@ function report(id = 'reference') {
       ...(name === 'copy' ? { clipboardSha256: p.content.sha256 } : { samples: Array.from({length:6}, (_, i) => ({ afterMarkerMs: 3000 + i * 210, rootPid: 1, pssBytes: 200 * MiB, rssBytes: 300 * MiB,
         processes: [{ pid: 1, ppid: 0, startTicks: 10, name: 'NimblePost', pssBytes: 100 * MiB, rssBytes: 150 * MiB }, { pid: 2, ppid: 1, startTicks: 11, name: 'WebKitWebProcess', pssBytes: 100 * MiB, rssBytes: 150 * MiB }] })) }) };
   };
-  return { schemaVersion:1, protocol:responseProtocol, seriesId:id, status:'passed', source, binary:{sha256:'b'.repeat(64)}, environment:{platform:'linux',hostHash:'h',webview:'v'}, fixtures:identity, launchCount:5,
+  const peak = {rootPid:1,pssBytes:300*MiB,rssBytes:400*MiB,processes:[{pid:1,ppid:0,startTicks:10,name:'NimblePost',pssBytes:150*MiB,rssBytes:200*MiB},{pid:2,ppid:1,startTicks:11,name:'WebKitWebProcess',pssBytes:150*MiB,rssBytes:200*MiB}]};
+  return { schemaVersion:1, protocol:responseProtocol, seriesId:id, status:'passed', source, binary:{sha256:'b'.repeat(64)}, environment:{platform:'linux',arch:'x64',hostHash:'h',webview:'v'}, fixtures:identity, launchCount:5,
     launches:Array.from({length:5}, (_, i) => ({ iteration:i+1, ready, smoke:{payload:{error:'',checks:['large-responses']}}, privacyPassed:true,
       traffic:Array.from({length:3}, () => [{name:'slow',bytesWritten:65536,closed:true,finished:false,secretReceived:true},{name:'excess',bytesWritten:17*MiB,closed:true,finished:false,secretReceived:true}]).flat(),
-      peakObserved:{pssBytes:300*MiB,rssBytes:400*MiB}, phases:[makePhase('baseline',0,0),...Array.from({length:3},(_, cycle)=>responsePhases.map((name,index)=>makePhase(name,cycle+1,1+cycle*responsePhases.length+index))).flat()] })) };
+      peakObserved:{pssBytes:300*MiB,rssBytes:400*MiB,pss:peak,rss:peak}, phases:[makePhase('baseline',0,0),...Array.from({length:3},(_, cycle)=>responsePhases.map((name,index)=>makePhase(name,cycle+1,1+cycle*responsePhases.length+index))).flat()] })) };
 }
 
 test('Large fixtures are exact UTF-8 payloads, valid JSON and an unbroken Unicode line', () => {
@@ -63,6 +64,7 @@ test('Complete reports recompute summaries; clipboard, release and HTTP checks a
     r => r.launches[0].phases[9].probe.payload.cachedBodyChars=1,
     r => r.launches[0].traffic[0].finished=true, r => r.launches[0].traffic[1].bytesWritten=16*MiB,
     r => r.launches[0].traffic[0].secretReceived=false, r => r.launches[0].privacyPassed=false,
+    r => r.launches[0].peakObserved.pss.processes[1].ppid=3,
     r => r.launches[0].phases[0].samples[0].processes[1].ppid=3,
     r => r.launches[0].phases[0].samples[0].processes[1].name='Other',
     r => r.launches[0].phases[0].samples[0].pssBytes=1,

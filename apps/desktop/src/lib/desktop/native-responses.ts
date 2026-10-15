@@ -2,6 +2,7 @@
 import { emit } from '@tauri-apps/api/event';
 import { tick } from 'svelte';
 import type { MemoryControls } from './native-validation';
+import { stopProfiling } from './native-profile';
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const frames = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
@@ -9,6 +10,7 @@ const ensure = (ok: unknown, message: string) => { if (!ok) throw new Error(mess
 const digest = async (text: string) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))].map(byte => byte.toString(16).padStart(2, '0')).join('');
 
 export async function validateResponses(controls: MemoryControls) {
+  stopProfiling();
   const send = (url: string, raw = false) => {
     controls.provideSecret('np013-token', 'NP013_RUNTIME_SECRET_CANARY');
     return raw ? controls.sendRaw(url) : controls.send(url);
@@ -71,9 +73,17 @@ export async function validateResponses(controls: MemoryControls) {
     for (let request = 1; request < 64; request++) await controls.open(`request-${String(request).padStart(5, '0')}.yml`);
     ensure(clean().tabs.length === 64, 'Expected 64 tabs');
     const tabs = controls.inspect().tabs;
-    for (const tab of tabs.slice(-4)) { await controls.activate(tab); await send(`${controls.url}/text`); await complete(); }
+    const loaded = [];
+    for (const tab of tabs.slice(-4)) {
+      await controls.activate(tab); await send(`${controls.url}/text`); await complete();
+      loaded.push(await content());
+    }
+    for (const [i, tab] of tabs.slice(-4).entries()) {
+      await controls.activate(tab);
+      ensure(await digest(controls.body()) === loaded[i].sha256, 'Cached response changed across tabs');
+    }
     await controls.activate(tabs[0]); await controls.activate(tabs.at(-1)!);
-    await phase(cycle, 'four-responses', { content: await content() });
+    await phase(cycle, 'four-responses', { content: await content(), loaded });
     await send(`${controls.url}/json`); await complete(); clean();
     ensure(document.querySelector('.response-body-note')?.textContent?.includes('too large'), 'Large JSON must retain explicit formatting fallback');
     await phase(cycle, 'json', { content: await content(), renderedRows: document.querySelectorAll('[data-response-line]').length });

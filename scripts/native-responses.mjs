@@ -81,7 +81,7 @@ async function runLaunch(binary, sha, server, iteration) {
             assert.equal(parseStat(await readFile(`/proc/${p.pid}/stat`, 'utf8'), pageSize, hz).startTicks, p.startTicks);
             processes.push({ ...p, pssBytes });
           }
-          points.push({ observed: performance.now(), rootPid: child.pid, pssBytes: processes.reduce((n, p) => n + p.pssBytes, 0), rssBytes: processes.reduce((n, p) => n + p.rssBytes, 0), processes });
+          points.push({ observed: performance.now(), previousMarkerIndex: phases.length - 1, rootPid: child.pid, pssBytes: processes.reduce((n, p) => n + p.pssBytes, 0), rssBytes: processes.reduce((n, p) => n + p.rssBytes, 0), processes });
         } catch (error) { if (!['ENOENT', 'ESRCH'].includes(error.code)) { sampleError = error; return; } }
         await delay(100);
       }
@@ -105,7 +105,7 @@ async function runLaunch(binary, sha, server, iteration) {
         assert.equal(phase.clipboardSha256, probe.payload.content.sha256, 'Clipboard mismatch');
       } else {
         for (let sample = 0; sample < 6; sample++) {
-          const target = observed + 3000 + sample * 210;
+          const target = sample ? phase.samples.at(-1).observed + 200 : observed + 3000;
           while (!points.some(p => p.observed >= target)) { alive(); await delay(20); }
           const point = points.find(p => p.observed >= target);
           phase.samples.push({ ...point, afterMarkerMs: point.observed - observed });
@@ -115,12 +115,16 @@ async function runLaunch(binary, sha, server, iteration) {
     const smoke = await marker('smoke'); assert.equal(smoke.payload.error, '');
     stopped = true; await sampling;
     assert.equal(await collectionHash(join(directory, 'collection')), before, 'Scenario modified YAML');
+    const checkedProfile = [];
     for (const path of await files(join(directory, 'profile'))) {
       const value = await readFile(path, 'utf8');
       assert(!/NP013_(JSON|LINE|TEXT|RUNTIME_SECRET_CANARY)/.test(value), 'Body or runtime secret reached persistent profile');
+      checkedProfile.push({ path: path.slice(join(directory, 'profile').length + 1), sha256: hash(value) });
     }
-    return { iteration, ready, smoke, phases, privacyPassed: true, traffic: structuredClone(server.traffic.slice(trafficStart)),
-      peakObserved: { pssBytes: Math.max(...points.map(p => p.pssBytes)), rssBytes: Math.max(...points.map(p => p.rssBytes)), intervalMs: 100, samples: points.length } };
+    assert(checkedProfile.some(p => p.path === 'history.json') && checkedProfile.some(p => p.path === 'recovery.json'), 'Privacy check requires actual history and recovery files');
+    return { iteration, ready, smoke, phases, privacyPassed: true, privacy: { collectionSha256: before, checkedProfile }, traffic: structuredClone(server.traffic.slice(trafficStart)),
+      peakObserved: { pssBytes: Math.max(...points.map(p => p.pssBytes)), rssBytes: Math.max(...points.map(p => p.rssBytes)),
+        pss: points.reduce((a, b) => a.pssBytes >= b.pssBytes ? a : b), rss: points.reduce((a, b) => a.rssBytes >= b.rssBytes ? a : b), intervalMs: 100, samples: points.length } };
   } catch (error) {
     error.partialPhases = phases;
     error.message += stderr ? `\nApplication stderr: ${stderr}` : '';
@@ -153,6 +157,7 @@ export async function main(args) {
   const source = { sha: command('git', ['rev-parse', 'HEAD']), dirty: !!command('git', ['status', '--porcelain', '--untracked-files=no']) };
   assert.equal(source.dirty, false, 'Commit measured sources first');
   const bytes = await readFile(binary); assert(bytes.includes(Buffer.from('native-validation requires NIMBLEPOST_VALIDATION_DIR')));
+  assert.equal(process.arch, 'x64', 'NP-013 acceptance currently supports Linux x64');
   const server = await serveResponses();
   const report = { schemaVersion: 1, protocol: responseProtocol, seriesId: randomUUID(), status: 'running', source, launchCount, launches: [],
     binary: { sha256: hash(bytes), bytes: (await stat(binary)).size }, fixtures: server.fixtures,

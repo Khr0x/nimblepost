@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { stats } from './performance-report.mjs';
+import { responseFixtures, fixtureIdentity } from './response-fixtures.mjs';
 
 export const responseProtocol = 'responses-linux-v1';
 export const responsePhases = ['four-responses', 'json', 'copy', 'line', 'copy', 'excess', 'after-cancel', 'closed', 'reset'];
@@ -7,11 +8,27 @@ const MiB = 2 ** 20;
 const median = values => stats(values).median;
 const signedStats = values => { const min = Math.min(...values); return Object.fromEntries(Object.entries(stats(values.map(v => v - min))).map(([key, value]) => [key, value + min])); };
 const numeric = value => Number.isFinite(value) && value >= 0;
+function validateFamily(sample) {
+  assert(sample.processes.some(p => /WebKit/.test(p.name)), 'Missing attributed WebKit helper');
+  const ids = new Set(sample.processes.map(p => p.pid)); assert.equal(ids.size, sample.processes.length);
+  assert(ids.has(sample.rootPid));
+  for (const proc of sample.processes) {
+    assert(numeric(proc.pssBytes) && numeric(proc.rssBytes) && proc.startTicks > 0);
+    const chain = new Set(); let current = proc;
+    while (current.pid !== sample.rootPid) {
+      assert(!chain.has(current.pid)); chain.add(current.pid);
+      current = sample.processes.find(p => p.pid === current.ppid); assert(current, 'Unattributed process');
+    }
+  }
+  assert.equal(sample.pssBytes, sample.processes.reduce((sum, p) => sum + p.pssBytes, 0));
+  assert.equal(sample.rssBytes, sample.processes.reduce((sum, p) => sum + p.rssBytes, 0));
+}
 export function summarizeResponses(report) {
   assert.equal(report.schemaVersion, 1); assert.equal(report.protocol, responseProtocol); assert.equal(report.status, 'passed');
   assert(report.seriesId && /^[a-f0-9]{40}$/.test(report.source.sha) && !report.source.dirty);
   assert(/^[a-f0-9]{64}$/.test(report.binary.sha256));
-  assert.equal(report.environment.platform, 'linux');
+  assert.equal(report.environment.platform, 'linux'); assert.equal(report.environment.arch, 'x64');
+  assert.deepEqual(report.fixtures, fixtureIdentity(responseFixtures()), 'Unknown fixture recipe');
   assert(report.launches.length >= 5 && report.launches.length === report.launchCount, 'Five complete launches required');
   const interactions = [], cancellations = [], deltas = [], resets = [];
   for (const [i, launch] of report.launches.entries()) {
@@ -41,25 +58,16 @@ export function summarizeResponses(report) {
       assert.equal(phase.samples.length, 6);
       for (const [j, sample] of phase.samples.entries()) {
         assert(sample.afterMarkerMs >= 3000 && (!j || sample.afterMarkerMs - phase.samples[j - 1].afterMarkerMs >= 199));
-        assert(sample.processes.some(p => /WebKit/.test(p.name)), 'Missing attributed WebKit helper');
-        const ids = new Set(sample.processes.map(p => p.pid)); assert.equal(ids.size, sample.processes.length);
-        assert(ids.has(sample.rootPid));
-        for (const proc of sample.processes) {
-          assert(numeric(proc.pssBytes) && numeric(proc.rssBytes) && proc.startTicks > 0);
-          const chain = new Set(); let current = proc;
-          while (current.pid !== sample.rootPid) {
-            assert(!chain.has(current.pid)); chain.add(current.pid);
-            current = sample.processes.find(p => p.pid === current.ppid); assert(current, 'Unattributed process');
-          }
-        }
-        assert.equal(sample.pssBytes, sample.processes.reduce((sum, p) => sum + p.pssBytes, 0));
-        assert.equal(sample.rssBytes, sample.processes.reduce((sum, p) => sum + p.rssBytes, 0));
+        validateFamily(sample);
       }
       if (p.name === 'json' || p.name === 'line' || p.name === 'four-responses' || p.name === 'after-cancel') {
         assert.deepEqual(p.content, report.fixtures[p.name === 'json' ? 'json' : p.name === 'line' ? 'line' : 'text']);
         assert.equal(p.activeOffset, p.bodyBytes); assert.equal(p.bodyBytes, p.content.bytes); assert.equal(p.error, '');
       }
-      if (p.name === 'four-responses') { assert.equal(p.tabs.length, 64); assert.equal(p.cachedBodyChars > 0, true); }
+      if (p.name === 'four-responses') {
+        assert.equal(p.tabs.length, 64); assert.equal(p.cachedBodyChars > 0, true);
+        assert.deepEqual(p.loaded, Array(4).fill(report.fixtures.text));
+      }
       if (p.name === 'excess') { assert.match(p.error, /16777216/); assert.equal(p.bodyBytes, 0); assert.equal(probe.backendMemory.responseBytes, 0); }
       if (p.name === 'closed' || p.name === 'reset') {
         for (const value of [p.tabs.length, p.cachedBodyChars, p.activeBodyChars, p.bodyBytes, probe.backendMemory.responseBytes]) assert.equal(value, 0);
@@ -76,6 +84,11 @@ export function summarizeResponses(report) {
     assert.equal(launch.privacyPassed, true);
     assert(launch.traffic.length > 0 && launch.traffic.every(t => t.secretReceived), 'Runtime secret did not reach the server');
     assert(launch.peakObserved.pssBytes > 0 && launch.peakObserved.rssBytes > 0);
+    for (const metric of ['pss', 'rss']) {
+      validateFamily(launch.peakObserved[metric]);
+      assert.equal(launch.peakObserved[`${metric}Bytes`], launch.peakObserved[metric][`${metric}Bytes`]);
+      assert(launch.phases.flatMap(p => p.samples ?? []).every(s => s[`${metric}Bytes`] <= launch.peakObserved[`${metric}Bytes`]));
+    }
     assert.equal(launchResets.length, 3);
     for (const name of ['chunk', 'scroll', 'wrap', 'tab-empty', 'tab-response', 'cancel']) assert(actionNames.filter(action => action === name).length >= 3, `Missing repeated action: ${name}`);
     const growth = launchResets[2] - launchResets[1];
