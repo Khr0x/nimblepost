@@ -477,6 +477,11 @@
         if (!internal && requestTabs.some(tab => tab.path && tab.draft.edits.length)) throw new Error('Save or Discard edited collection requests before switching collections.');
         updateCollection(await api.selectCollection(item.root));
       }
+      // Read metadata before replacing the view, avoiding an intermediate render and variable-context request.
+      const nextEnvironment = collection?.environments.includes(item.environment) ? item.environment : '';
+      let environmentView: RequestInfo | null = null;
+      try { environmentView = nextEnvironment ? await api.environment(nextEnvironment) : null; }
+      catch (e) { error = String(e); }
       if (item.path && !item.externalChange) {
         try {
           const fresh = await api.request(item.path);
@@ -486,10 +491,10 @@
       }
       activeRequestTab = id; selected = item.path; draft = item.draft;
       requestName = draft.value.info?.name ?? 'Untitled'; method = draft.value.http?.method ?? 'GET'; url = draft.value.http?.url ?? '';
-      environment = collection?.environments.includes(item.environment) ? item.environment : ''; baseUrl = item.baseUrl;
+      environment = nextEnvironment; baseUrl = item.baseUrl;
       response = item.response; body = item.body; offset = item.offset; decoder = item.decoder ?? new TextDecoder(); notice = item.recoveryNotice ?? ''; home = false;
-      environmentOpen = false;
-      await environmentChanged();
+      environmentOpen = false; envDraft = null; secrets = {};
+      secretNames = (environmentView?.document.variables ?? []).filter((row: { secret?: boolean; disabled?: boolean }) => row.secret && !row.disabled).map((row: { name: string }) => row.name);
     } catch (e) {
       error = String(e);
       if (previousRoot && previousRoot !== collection?.root) updateCollection(await api.selectCollection(previousRoot));
