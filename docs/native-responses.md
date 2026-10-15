@@ -101,7 +101,7 @@ La aceptación y los resultados observados se mantienen en Obsidian, task NP-013
 ## Diagnosticar memoria y latencia
 
 El escenario manual `response-diagnostics` fuerza un solo lanzamiento y utiliza
-`responses-linux-diagnostic-v1`. Conserva los fixtures y las comprobaciones de
+`responses-linux-diagnostic-v2`. Conserva los fixtures y las comprobaciones de
 integridad, copia, cancelación y privacidad. Nunca genera aceptación ni puede
 compararse como referencia. No se restan sus controles a los tiempos observados.
 
@@ -109,6 +109,10 @@ Por fase añade cinco controles sin acción: timer, dos frames y lectura IPC de
 recovery; visibilidad/foco y presión CPU del host. Por acción conserva spans IPC
 (comando, inicio y duración; sin argumentos), además de handler/flush/frames.
 Los comandos concurrentes pueden solaparse: sus duraciones no se suman como CPU.
+Conserva tiempos backend de request, entorno, variables, chunks y recovery en un
+buffer limitado a 1.024 entradas, drenado por fase; cualquier descarte hace fallar
+el diagnóstico. Tras los tres ciclos espera 30 s sin acciones ni GC y añade la
+fase `idle-reset` (29 fases en total), para observar reclamación natural.
 
 Compila aparte `scripts/response-allocator.c`, sin incluirlo en el paquete. Un
 preload habilitado solo para la familia NimblePost/WebKit del perfil temporal

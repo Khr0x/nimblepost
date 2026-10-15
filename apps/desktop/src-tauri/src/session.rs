@@ -956,6 +956,8 @@ impl Session {
     }
 
     pub async fn read_environment(&self, name: &str) -> Result<RequestView, String> {
+        #[cfg(feature = "native-validation")]
+        let _timing = crate::validation::Stage::start("environment-read", 1);
         let _operation = self
             .operation
             .try_lock()
@@ -971,6 +973,8 @@ impl Session {
         path: Option<&str>,
         environment: Option<&str>,
     ) -> Result<Vec<VariablePreview>, String> {
+        #[cfg(feature = "native-validation")]
+        let _timing = crate::validation::Stage::start("variables-read", 1);
         let root = self.inner.lock().unwrap().root.clone();
         let Some(root) = root else {
             return Ok(Vec::new());
@@ -1207,6 +1211,8 @@ impl Session {
     }
 
     pub fn read_response(&self, id: u64, offset: usize) -> Result<String, String> {
+        #[cfg(feature = "native-validation")]
+        let _timing = crate::validation::Stage::start("response-chunk", 1);
         let inner = self.inner.lock().unwrap();
         let (current, response) = inner.response.as_ref().ok_or("No response is available")?;
         if *current != id {

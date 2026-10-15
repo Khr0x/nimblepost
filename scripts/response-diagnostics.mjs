@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 
-export const diagnosticProtocol = 'responses-linux-diagnostic-v1';
+export const diagnosticProtocol = 'responses-linux-diagnostic-v2';
 
 // Read only glibc's aggregate footer; summing heap children would double count it.
 export function parseAllocator(xml) {

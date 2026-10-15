@@ -66,7 +66,7 @@ async function runLaunch(binary, sha, server, iteration, checkpoint, allocatorLi
       ...(allocatorLibrary ? { LD_PRELOAD: allocatorLibrary, NP013_ALLOCATOR_DIAGNOSTIC_DIR: directory } : {}) }, stdio: ['ignore', 'ignore', 'pipe'] });
     child.stderr.on('data', data => { stderr = (stderr + data).slice(-8192); });
     let spawnError; child.on('error', error => { spawnError = error; });
-    const deadline = performance.now() + 360000;
+    const deadline = performance.now() + (allocatorLibrary ? 600000 : 360000);
     const alive = () => { if (spawnError) throw spawnError; assert(child.exitCode === null && child.signalCode === null, 'Application exited'); if (sampleError) throw sampleError; assert(performance.now() < deadline, 'Response launch timed out'); };
     const marker = async name => {
       while (true) {
@@ -97,8 +97,9 @@ async function runLaunch(binary, sha, server, iteration, checkpoint, allocatorLi
         await delay(100);
       }
     })();
-    for (let index = 0; index < 28; index++) {
+    for (let index = 0; index < (allocatorLibrary ? 29 : 28); index++) {
       const probe = await marker(`responses-${index}`), observed = performance.now(), phase = { probe, samples: [] };
+      if (allocatorLibrary) assert.equal(probe.backendTimingDropped, 0, 'Diagnostic timing buffer overflowed');
       phases.push(phase);
       if (probe.payload.name === 'copy') {
         const point = probe.payload.point;

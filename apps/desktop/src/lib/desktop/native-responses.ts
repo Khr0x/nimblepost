@@ -149,4 +149,9 @@ export async function validateResponses(controls: MemoryControls) {
     ensure(!reset.labels && !reset.attempts && !reset.treeCaches && !reset.cachedBodyChars && !reset.activeBodyChars, 'Workspace caches survived reset');
     await phase(cycle, 'reset');
   }
+  if (controls.responseDiagnostics) {
+    // Observe normal idle reclamation after loop-local DOM references leave scope.
+    await delay(30000);
+    await phase(3, 'idle-reset');
+  }
 }

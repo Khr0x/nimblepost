@@ -9,6 +9,8 @@ use tauri_plugin_dialog::DialogExt;
 
 #[tauri::command]
 pub(crate) fn read_recovery(session: State<'_, Session>) -> RecoveryView {
+    #[cfg(feature = "native-validation")]
+    let _timing = crate::validation::Stage::start("recovery-read", 1);
     session.read_recovery()
 }
 

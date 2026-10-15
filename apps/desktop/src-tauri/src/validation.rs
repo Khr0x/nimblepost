@@ -5,7 +5,7 @@ use std::{
     path::PathBuf,
     sync::{
         Mutex, OnceLock,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     time::Instant,
 };
@@ -15,6 +15,21 @@ static STARTED: OnceLock<Instant> = OnceLock::new();
 static STAGES: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
 static PROFILING: AtomicBool = AtomicBool::new(true);
 static PLAN: OnceLock<Option<serde_json::Value>> = OnceLock::new();
+static TIMING_DROPPED: AtomicUsize = AtomicUsize::new(0);
+
+fn response_diagnostics() -> bool {
+    PLAN.get()
+        .and_then(Option::as_ref)
+        .is_some_and(|plan| plan["responseDiagnostics"] == true)
+}
+
+fn append_stage(stages: &mut Vec<serde_json::Value>, stage: serde_json::Value) -> bool {
+    if stages.len() >= 1024 {
+        return false;
+    }
+    stages.push(stage);
+    true
+}
 
 pub fn plan() -> Option<serde_json::Value> {
     PLAN.get().cloned().flatten()
@@ -40,15 +55,20 @@ impl Drop for Stage {
     fn drop(&mut self) {
         // Unit tests run without app setup; they must not retain timings.
         if let Some(origin) = STARTED.get() {
-            if !PROFILING.load(Ordering::Relaxed) {
+            if !PROFILING.load(Ordering::Relaxed) && !response_diagnostics() {
                 return;
             }
-            STAGES.lock().unwrap().push(serde_json::json!({
-                "name": self.name,
-                "startMs": self.started.duration_since(*origin).as_secs_f64() * 1000.0,
-                "durationMs": self.started.elapsed().as_secs_f64() * 1000.0,
-                "items": self.items,
-            }));
+            if !append_stage(
+                &mut STAGES.lock().unwrap(),
+                serde_json::json!({
+                    "name": self.name,
+                    "startMs": self.started.duration_since(*origin).as_secs_f64() * 1000.0,
+                    "durationMs": self.started.elapsed().as_secs_f64() * 1000.0,
+                    "items": self.items,
+                }),
+            ) {
+                TIMING_DROPPED.fetch_add(1, Ordering::Relaxed);
+            }
         }
     }
 }
@@ -91,6 +111,11 @@ pub fn setup(
                 } else {
                     format!("{stage}.json")
                 };
+                let backend_stages = if response_diagnostics() {
+                    std::mem::take(&mut *STAGES.lock().unwrap())
+                } else {
+                    STAGES.lock().unwrap().clone()
+                };
                 let report = serde_json::json!({
                     "buildSha": option_env!("NIMBLEPOST_BUILD_SHA"),
                     "version": env!("CARGO_PKG_VERSION"),
@@ -98,7 +123,8 @@ pub fn setup(
                     "inspector": cfg!(feature = "native-inspector"),
                     "backendStartupMs": started.elapsed().as_secs_f64() * 1000.0,
                     "payload": payload,
-                    "backendStages": STAGES.lock().unwrap().clone(),
+                    "backendStages": backend_stages,
+                    "backendTimingDropped": TIMING_DROPPED.swap(0, Ordering::Relaxed),
                     "backendMemory": handle.state::<crate::session::Session>().validation_memory(),
                 });
                 let mut temporary = tempfile::NamedTempFile::new_in(&directory)?;
@@ -123,4 +149,19 @@ pub fn setup(
         });
     }
     Ok(profile)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn diagnostic_timings_cannot_grow_without_bound() {
+        let mut stages = Vec::new();
+        for _ in 0..1024 {
+            assert!(super::append_stage(&mut stages, serde_json::Value::Null));
+        }
+        assert!(!super::append_stage(&mut stages, serde_json::Value::Null));
+        assert_eq!(stages.len(), 1024);
+        stages.clear();
+        assert!(super::append_stage(&mut stages, serde_json::Value::Null));
+    }
 }
