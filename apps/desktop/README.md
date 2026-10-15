@@ -329,11 +329,18 @@ Esta optimización limita líneas, no caracteres de una única línea muy larga.
 ## Rendimiento y distribución nativa
 
 El [RFC-0010](../../docs/rfc/0010-presupuestos-rendimiento.md) conserva el protocolo
-de rendimiento como referencia. Las herramientas y reportes de medición se
-retiraron del repositorio.
+v1 como referencia histórica. NP-011 restablece el
+[tooling Linux v2](../../docs/native-performance.md) para arranque habitual/RSS,
+con perfiles aislados, reportes y comparación. No acredita cold start ni los
+objetivos absolutos, y no admite comparar sus series con el protocolo anterior.
 
 `tauri.windows.conf.json` configura NSIS y `tauri.linux.conf.json` configura
-Debian. CI tiene runners Windows 2025/Ubuntu 24.04 x64 para compilar, instalar y
+Debian. El workflow manual `Native distribution validation` tiene runners
+Windows 2025/Ubuntu 24.04 x64 para compilar, instalar y
 abrir paquetes y ejecutar las pruebas Rust. Los resultados de estos runners x64
 siguen pendientes hasta ejecutar los jobs del commit correspondiente. Los artefactos de CI no cambian
 el canal de releases públicas, actualmente macOS ALPHA.
+
+La [guía de aceptación Windows/Linux x64](../../docs/native-validation.md) separa
+los checks automáticos de instalación/arranque/desinstalación del smoke
+interactivo pendiente y describe la evidencia necesaria para cerrar NP-010.

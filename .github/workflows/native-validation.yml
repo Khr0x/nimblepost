@@ -2,7 +2,6 @@ name: Native distribution validation
 
 on:
   workflow_dispatch:
-  workflow_call:
 
 permissions:
   contents: read
@@ -46,28 +45,63 @@ jobs:
             ~/.cargo/git
             target
           key: native-${{ runner.os }}-${{ runner.arch }}-${{ env.RUSTUP_TOOLCHAIN }}-${{ hashFiles('Cargo.lock', '**/Cargo.toml') }}
+      - name: Record native validation environment
+        run: |
+          mkdir -p "$RUNNER_TEMP/native-validation"
+          node --input-type=module -e '
+            import { readFileSync, writeFileSync } from "node:fs";
+            import os from "node:os";
+            if (process.arch !== "x64") throw new Error("Native validation requires x64");
+            writeFileSync(`${process.env.RUNNER_TEMP}/native-validation/environment.json`, JSON.stringify({
+              sha: process.env.GITHUB_SHA, runId: process.env.GITHUB_RUN_ID,
+              platform: process.platform, arch: process.arch, osRelease: os.release(),
+              node: process.version, rustToolchain: process.env.RUSTUP_TOOLCHAIN,
+              version: JSON.parse(readFileSync("apps/desktop/package.json", "utf8")).version,
+              validatedAt: new Date().toISOString(),
+              scope: "backend tests and installed-package lifecycle; interactive smoke remains separate"
+            }, null, 2));
+          '
       - name: Test native backend, storage, recovery and file notifications
-        run: cargo test --workspace --locked
+        run: cargo test --workspace --locked 2>&1 | tee "$RUNNER_TEMP/native-validation/backend-tests.log"
       - name: Build production installers without validation hooks
         run: npm run tauri --workspace @nimblepost/desktop -- build --ci -- --locked
-      - name: Install and launch production Windows package
+      - name: Install, launch and uninstall production Windows package
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $installer = @(Get-ChildItem target/release/bundle/nsis/*-setup.exe)
-          if ($installer.Count -ne 1) { throw 'Expected one NSIS installer' }
-          $installPath = Join-Path $env:RUNNER_TEMP 'nimblepost-package'
-          $install = Start-Process $installer[0].FullName -ArgumentList "/S /D=$installPath" -Wait -PassThru
-          if ($install.ExitCode -ne 0) { throw "Installer failed: $($install.ExitCode)" }
-          $binary = Join-Path $installPath 'NimblePost.exe'
-          if (!(Test-Path $binary)) { throw 'Installed executable is missing' }
-          if (!(Get-ChildItem $installPath -Recurse -Filter opencollection.yml)) { throw 'Bundled example is missing' }
-          $app = Start-Process $binary -PassThru
+          Start-Transcript -Path (Join-Path $env:RUNNER_TEMP 'native-validation/windows-lifecycle.log')
           try {
-            Start-Sleep -Seconds 5
-            $app.Refresh()
-            if ($app.HasExited -or $app.MainWindowHandle -eq 0) { throw 'Installed app did not open a native window' }
-          } finally { if (!$app.HasExited) { Stop-Process -Id $app.Id } }
+            $installer = @(Get-ChildItem target/release/bundle/nsis/*-setup.exe)
+            if ($installer.Count -ne 1) { throw 'Expected one NSIS installer' }
+            $installPath = Join-Path $env:RUNNER_TEMP 'nimblepost-package'
+            $collectionPath = Join-Path $env:RUNNER_TEMP 'nimblepost-external-collection'
+            Copy-Item examples/basic-http $collectionPath -Recurse
+            $before = Get-ChildItem $collectionPath -Recurse -File | Sort-Object FullName | Get-FileHash | Select-Object Path, Hash | ConvertTo-Json
+            Get-FileHash $installer[0].FullName | Format-List
+            $install = Start-Process $installer[0].FullName -ArgumentList "/S /D=$installPath" -Wait -PassThru
+            if ($install.ExitCode -ne 0) { throw "Installer failed: $($install.ExitCode)" }
+            $binary = Join-Path $installPath 'NimblePost.exe'
+            if (!(Test-Path $binary)) { throw 'Installed executable is missing' }
+            if (!(Get-ChildItem $installPath -Recurse -Filter opencollection.yml)) { throw 'Bundled example is missing' }
+            $app = Start-Process $binary -PassThru
+            try {
+              Start-Sleep -Seconds 5
+              $app.Refresh()
+              if ($app.HasExited -or $app.MainWindowHandle -eq 0) { throw 'Installed app did not open a native window' }
+            } finally {
+              if (!$app.HasExited) { Stop-Process -Id $app.Id }
+              if (!$app.WaitForExit(10000)) { throw 'Installed app did not stop' }
+            }
+            $uninstaller = Join-Path $installPath 'uninstall.exe'
+            if (!(Test-Path $uninstaller)) { throw 'NSIS uninstaller is missing' }
+            # _?= prevents the NSIS uninstaller from spawning a detached temporary copy.
+            $uninstall = Start-Process $uninstaller -ArgumentList "/S _?=$installPath" -Wait -PassThru
+            if ($uninstall.ExitCode -ne 0) { throw "Uninstaller failed: $($uninstall.ExitCode)" }
+            if (Test-Path $binary) { throw 'Installed executable survived uninstall' }
+            $after = Get-ChildItem $collectionPath -Recurse -File | Sort-Object FullName | Get-FileHash | Select-Object Path, Hash | ConvertTo-Json
+            if ($before -ne $after) { throw 'Uninstall changed the external collection' }
+            Write-Output 'PASS: NSIS install, native window, uninstall and external collection preservation'
+          } finally { Stop-Transcript }
       - name: Inspect Debian package and dependencies
         if: runner.os == 'Linux'
         run: |
@@ -78,17 +112,40 @@ jobs:
             grep -q 'examples/basic-http/opencollection.yml' "$RUNNER_TEMP/package-contents.txt"
             grep -q 'libwebkit2gtk-4.1' <(dpkg-deb --field "$package" Depends)
           done
-      - name: Install and launch production Debian package
+      - name: Install, launch and uninstall production Debian package
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get install -y ./target/release/bundle/deb/*.deb
+          exec > >(tee "$RUNNER_TEMP/native-validation/linux-lifecycle.log") 2>&1
+          packages=(target/release/bundle/deb/*.deb)
+          test "${#packages[@]}" -eq 1
+          test "$(dpkg-deb --field "${packages[0]}" Architecture)" = amd64
+          package_name=$(dpkg-deb --field "${packages[0]}" Package)
+          sha256sum "${packages[0]}"
+          cp -R examples/basic-http "$RUNNER_TEMP/nimblepost-external-collection"
+          (cd "$RUNNER_TEMP/nimblepost-external-collection" && find . -type f -exec sha256sum {} + | sort) > "$RUNNER_TEMP/native-validation/collection-before.sha256"
+          sudo apt-get install -y "./${packages[0]}"
           dbus-run-session -- xvfb-run -a bash -c '
             /usr/bin/NimblePost > "$RUNNER_TEMP/installed-app.log" 2>&1 &
             app_pid=$!
-            trap "kill $app_pid 2>/dev/null || true" EXIT
+            trap "kill $app_pid 2>/dev/null || true; wait $app_pid 2>/dev/null || true" EXIT
             sleep 5
             kill -0 "$app_pid" || { cat "$RUNNER_TEMP/installed-app.log"; exit 1; }
           '
+          sudo apt-get remove -y "$package_name"
+          test ! -e /usr/bin/NimblePost
+          (cd "$RUNNER_TEMP/nimblepost-external-collection" && find . -type f -exec sha256sum {} + | sort) > "$RUNNER_TEMP/native-validation/collection-after.sha256"
+          cmp "$RUNNER_TEMP/native-validation/collection-before.sha256" "$RUNNER_TEMP/native-validation/collection-after.sha256"
+          printf '%s\n' 'PASS: Debian install, process startup, uninstall and external collection preservation'
+      - name: Upload native validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-evidence-${{ runner.os }}-${{ runner.arch }}
+          if-no-files-found: warn
+          retention-days: 30
+          path: |
+            ${{ runner.temp }}/native-validation/
+            ${{ runner.temp }}/installed-app.log
       - name: Upload production installers
         if: always()
         uses: actions/upload-artifact@v4
