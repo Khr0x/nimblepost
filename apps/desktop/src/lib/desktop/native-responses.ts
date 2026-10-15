@@ -17,7 +17,7 @@ export async function validateResponses(controls: MemoryControls) {
     return raw ? controls.sendRaw(url) : controls.send(url);
   };
   let index = 0;
-  let actions: { name: string; durationMs: number }[] = [];
+  let actions: { name: string; durationMs: number; handlerMs: number; flushMs: number; frameMs: number }[] = [];
   const wait = async (condition: () => boolean, message: string) => {
     const deadline = performance.now() + 15000;
     while (!condition()) { ensure(performance.now() < deadline, message); await delay(10); }
@@ -29,9 +29,12 @@ export async function validateResponses(controls: MemoryControls) {
   };
   const action = async (name: string, perform: () => Promise<void> | void, visible: () => boolean) => {
     const started = performance.now();
-    await perform(); await tick(); await frames();
+    await perform(); const handled = performance.now();
+    await tick(); const flushed = performance.now();
+    await frames();
     ensure(visible(), `Action did not become visible: ${name}`);
-    actions.push({ name, durationMs: performance.now() - started });
+    const visibleAt = performance.now();
+    actions.push({ name, durationMs: visibleAt - started, handlerMs: handled - started, flushMs: flushed - handled, frameMs: visibleAt - flushed });
   };
   const phase = async (cycle: number, name: string, extra: Record<string, unknown> = {}, settle = true) => {
     await tick(); await frames();

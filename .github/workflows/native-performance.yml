@@ -20,7 +20,7 @@ permissions:
 jobs:
   measure:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 60
     defaults:
       run:
         shell: bash
@@ -84,6 +84,7 @@ jobs:
               --conditions 'GitHub Ubuntu x64; Xvfb; provider-managed power; host load unknown; no concurrent builds in job' \
               --out "reports/native-performance/$series.json" \
               2>&1 | tee "reports/native-performance/$series.log" || result=$?
+            if [ "$series" = reference ] && [ "$result" = 2 ]; then exit 2; fi
             test "$result" -eq 0 || test "$result" -eq 2
           done
       - name: Compare tooling series (not a release gate)

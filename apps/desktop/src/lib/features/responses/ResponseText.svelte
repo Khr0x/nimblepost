@@ -1,10 +1,15 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte';
-  import { hasManyLines, responseLineStarts, responseLine, responseLineTops, responseLineAt, responseLineWindow, RESPONSE_LINE_HEIGHT } from './response-lines';
+  import { hasManyLines, appendResponseLineIndex, responseLine, responseLineTops, responseLineAt, responseLineWindow, RESPONSE_LINE_HEIGHT } from './response-lines';
 
   let { text, wrap = true }: { text: string; wrap?: boolean } = $props();
   const virtual = $derived(hasManyLines(text));
-  const starts = $derived(virtual ? responseLineStarts(text) : new Uint32Array());
+  let indexCache: { text: string; starts: Uint32Array; segmented: boolean } = { text: '', starts: new Uint32Array(), segmented: false };
+  const index = $derived.by(() => {
+    indexCache = virtual ? appendResponseLineIndex(text, indexCache) : { text: '', starts: new Uint32Array(), segmented: false };
+    return indexCache;
+  });
+  const starts = $derived(index.starts);
   let viewport = $state<HTMLDivElement | null>(null);
   let height = $state(0), width = $state(0), scrollTop = $state(0);
   let measurements = $state(0);
@@ -21,7 +26,7 @@
       const anchor = responseLineAt(tops, Math.max(0, scrollTop - 16));
       // Appending a chunk changes the old final line; all earlier measurements remain valid.
       const appended = wrapped === previousWrap && availableWidth === previousWidth && source.startsWith(previousText);
-      if (appended) heights.delete(previousCount - 1);
+      if (appended) { heights.delete(previousCount - 1); heights.delete(previousCount - 2); }
       else heights.clear();
       const sameText = source === previousText;
       previousText = source; previousWrap = wrapped; previousWidth = availableWidth;
@@ -76,6 +81,7 @@
 </script>
 
 {#if virtual}
+  {#if index.segmented}<p class="response-body-note">Long lines are displayed in segments. Copy preserves the original content.</p>{/if}
   <!-- svelte-ignore a11y_no_noninteractive_tabindex (The scrollable region needs keyboard access.) -->
   <div class="response-text-viewport" class:nowrap={!wrap} bind:this={viewport} role="region" aria-label="Response body" tabindex="0" onscroll={() => scrollTop = viewport?.scrollTop ?? 0} data-response-lines={starts.length}>
     <div class="response-text-space" style:height={`${tops[starts.length]}px`}>

@@ -3,7 +3,7 @@
   import { formatJSON, tokenizeJSON, foldJSON } from './response-body';
   import JSONViewer from './JSONViewer.svelte';
   import ResponseText from './ResponseText.svelte';
-  import { hasManyLines, hasLongLines } from './response-lines';
+  import { hasManyLines } from './response-lines';
   import * as Table from '$lib/components/ui/table';
   import { Button } from '$lib/components/ui/button';
   import * as Tabs from '$lib/components/ui/tabs';
@@ -52,7 +52,6 @@
         <div class="response-body-actions"><span class="sr-only" role="status">{copied ? 'Response copied.' : ''}</span>{#if copyError}<span class="response-copy-message" role="alert">{copyError}</span>{/if}<Button variant="ghost" size="icon-sm" class="size-[28px]" aria-label="Wrap response lines" aria-pressed={wrap && displayMode !== 'raw'} title="Wrap lines" disabled={displayMode === 'raw'} onclick={() => wrap = !wrap}><WrapText aria-hidden="true" /></Button><Button variant="ghost" size="icon-sm" class="size-[28px]" aria-label="Copy response body" title={complete ? 'Copy full body' : 'Load the complete body to copy'} disabled={!complete || !body || chunkLoading} onclick={copyBody}>{#if copied}<Check class="action-confirmation" aria-hidden="true" />{:else}<Copy aria-hidden="true" />{/if}</Button></div>
       </div>
       {#if mode === 'pretty' && json.issue === 'large'}<p class="response-body-note">This body is too large to format automatically. Text and Raw show the original content.</p>{:else if mode === 'pretty' && complete && body && json.issue === 'invalid' && contentType.toLowerCase().includes('json')}<p class="response-body-note">The body is not valid JSON. Showing the original text.</p>{/if}
-      {#if hasLongLines(displayedBody)}<p class="response-body-note">Long lines are displayed in segments. Copy preserves the original content.</p>{/if}
       {#if foldedBody}<JSONViewer lines={foldedBody} {wrap} />{:else if highlightedBody}<pre class="response-text-static" class:nowrap={!wrap || displayMode === 'raw'} aria-label="Response body">{#each highlightedBody as token}{#if token.kind === 'plain'}{token.text}{:else}<span class={`json-token json-${token.kind}`}>{token.text}</span>{/if}{/each}</pre>{:else}<ResponseText text={displayedBody || (response.bodyBytes === 0 ? '(empty body)' : 'Loading body…')} wrap={wrap && displayMode !== 'raw'} />{/if}
       {#if !complete}<div class="body-more"><span>{size(offset)} of {size(response.bodyBytes)} loaded{mode === 'pretty' && response.text ? ' · JSON formatting requires the complete body' : ''}</span><Button variant="outline" size="sm" onclick={onloadMore} disabled={chunkLoading}>{chunkLoading ? 'Loading…' : 'Load next 64 KB'}</Button></div>{/if}
     </Tabs.Content>

@@ -11,6 +11,8 @@ En **Actions → Native performance tooling → Run workflow**, seleccionar la r
 `scenario: responses` y `launches: 5`. Se construye/instala Debian instrumentado y
 se ejecutan referencia y candidata en el mismo host. `launches: 1` ejecuta una sola serie diagnóstica:
 no genera aceptación ni comparación. Conservar SHA resuelto, logs y artefactos.
+Si la referencia incumple presupuestos, la corrida se detiene y conserva esos
+resultados; no gasta otra serie ni calibra una banda desde una referencia rechazada.
 
 Para ejecución local con requisitos Tauri, Xvfb, dbus, xclip y xdotool:
 
@@ -89,6 +91,8 @@ en summaries. Estado de serie `passed` indica finalización funcional y de reten
 referencias válidas. CLI: 0 pasó, 2 presupuesto incumplido, 1 datos/función inválidos.
 El JSON se guarda atómicamente al completar cada fase y lanzamiento; una corrida
 interrumpida conserva su estado parcial y nunca se acepta como referencia.
+El límite del job manual es 60 minutos: el diagnóstico de tres ciclos tarda
+aproximadamente cinco minutos por lanzamiento en el runner observado.
 Una comparación passed del mismo binario es validación acotada del protocolo/carga,
 no una mejora de rendimiento entre versiones.
 
