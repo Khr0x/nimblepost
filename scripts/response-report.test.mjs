@@ -23,14 +23,14 @@ function report(id = 'reference') {
     if (name === 'excess') p.error = 'La respuesta supera el límite en memoria de 16777216 bytes';
     if (name === 'after-cancel') p.actions = [{ name: 'cancel', durationMs: 50 }];
     if (name === 'json') p.actions = [{ name: 'chunk', durationMs: 40 }];
-    if (name === 'line') p.actions = ['scroll','wrap','tab-empty','tab-response'].map(name => ({ name, durationMs: 40 }));
+    if (name === 'line') p.actions = ['scroll','wrap','tab-empty','tab-response','tab-empty-loading','tab-partial'].map(name => ({ name, durationMs: 40 }));
     if (name === 'copy') Object.assign(p, { kind: index % responsePhases.length === 3 ? 'json' : 'line', content: index % responsePhases.length === 3 ? identity.json : identity.line });
     return { probe: { ...ready, payload: p, backendMemory: { responseBytes: 0, snapshots: 0, activeRequest: false } },
       ...(name === 'copy' ? { clipboardSha256: p.content.sha256 } : { samples: Array.from({length:6}, (_, i) => ({ afterMarkerMs: 3000 + i * 210, rootPid: 1, pssBytes: 200 * MiB, rssBytes: 300 * MiB,
         processes: [{ pid: 1, ppid: 0, startTicks: 10, name: 'NimblePost', pssBytes: 100 * MiB, rssBytes: 150 * MiB }, { pid: 2, ppid: 1, startTicks: 11, name: 'WebKitWebProcess', pssBytes: 100 * MiB, rssBytes: 150 * MiB }] })) }) };
   };
   const peak = {rootPid:1,pssBytes:300*MiB,rssBytes:400*MiB,processes:[{pid:1,ppid:0,startTicks:10,name:'NimblePost',pssBytes:150*MiB,rssBytes:200*MiB},{pid:2,ppid:1,startTicks:11,name:'WebKitWebProcess',pssBytes:150*MiB,rssBytes:200*MiB}]};
-  return { schemaVersion:1, protocol:responseProtocol, seriesId:id, status:'passed', source, binary:{sha256:'b'.repeat(64)}, environment:{platform:'linux',arch:'x64',hostHash:'h',webview:'v'}, fixtures:identity, launchCount:5,
+  return { schemaVersion:1, protocol:responseProtocol, seriesId:id, status:'passed', mode:'instrumented-release-ephemeral',absoluteTargetsEvaluated:false,source, binary:{sha256:'b'.repeat(64)}, environment:{platform:'linux',arch:'x64',hostHash:'h',webview:'v'}, fixtures:identity, launchCount:5,
     launches:Array.from({length:5}, (_, i) => ({ iteration:i+1, ready, smoke:{payload:{error:'',checks:['large-responses']}}, privacyPassed:true,
       traffic:Array.from({length:3}, () => [{name:'slow',bytesWritten:65536,closed:true,finished:false,secretReceived:true},{name:'excess',bytesWritten:17*MiB,closed:true,finished:false,secretReceived:true}]).flat(),
       peakObserved:{pssBytes:300*MiB,rssBytes:400*MiB,pss:peak,rss:peak}, phases:[makePhase('baseline',0,0),...Array.from({length:3},(_, cycle)=>responsePhases.map((name,index)=>makePhase(name,cycle+1,1+cycle*responsePhases.length+index))).flat()] })) };
@@ -41,6 +41,11 @@ test('Large fixtures are exact UTF-8 payloads, valid JSON and an unbroken Unicod
   for (const key of ['text','line']) assert.equal(payloads[key].length, 2 * MiB);
   for (const bytes of Object.values(payloads)) assert.equal(Buffer.from(bytes.toString('utf8')).equals(bytes), true);
   assert(!/[\r\n]/.test(payloads.line.toString())); assert(payloads.line.includes(Buffer.from('雪🙂')));
+  assert.equal(payloads.line[65535],0xf0);
+  const decoder=new TextDecoder();
+  const partial=decoder.decode(payloads.line.subarray(0,65536),{stream:true});
+  assert.equal(partial+decoder.decode(payloads.line.subarray(65536)),payloads.line.toString());
+  assert.notEqual(partial+new TextDecoder().decode(payloads.line.subarray(65536)),payloads.line.toString());
   assert.equal(identity.json.sha256, hash(payloads.json));
   assert.equal(parsePss('Rss: 4096 kB\nPss:                2048 kB\n'), 2 * MiB);
   assert.throws(() => parsePss('Pss_Dirty: 100 kB'));
@@ -86,7 +91,7 @@ test('Operational interaction and memory budgets cannot be hidden by a compariso
   assert.equal(compareResponses(reference,candidate).status,'passed');
   candidate.launches[0].phases[2].probe.payload.actions[0].durationMs=251;
   assert.equal(summarizeResponses(candidate).budgetStatus,'failed'); assert.equal(compareResponses(reference,candidate).status,'failed');
-  assert.throws(()=>compareResponses(candidate,reference));
+  const rejected=compareResponses(candidate,reference);assert.equal(rejected.status,'failed');assert.equal(rejected.referenceAccepted,false);assert.equal(rejected.calibratedBandBytes,null);
   assert.throws(()=>compareResponses(reference,reference));
   const incompatible=report('other');incompatible.environment.webview='other'; assert.throws(()=>compareResponses(reference,incompatible));
   const leak=report('leak'); for(const sample of leak.launches[0].phases.at(-1).samples) { sample.pssBytes+=20*MiB; sample.processes[0].pssBytes+=20*MiB; }

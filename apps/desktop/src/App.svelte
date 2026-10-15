@@ -454,13 +454,13 @@
   function canLeave() { if (unsavedTabs || isEdited || envDraft?.edits.length) { error = 'Save or close your unsaved request tabs before switching workspaces or collections.'; return false; } return true; }
   function stashRequestTab() {
     const item = requestTabs.find(item => item.id === activeRequestTab);
-    if (item && draft) Object.assign(item, { draft, environment, baseUrl, response, body, offset });
+    if (item && draft) Object.assign(item, { draft, environment, baseUrl, response, body, offset, decoder: response?.text ? decoder : undefined });
   }
   async function newUntitled() {
     if (busy || loading || chunkLoading || envDraft?.edits.length) return;
     stashRequestTab();
     draft = untitledDraft(); selected = ''; requestName = 'Untitled'; method = 'GET'; url = '';
-    response = null; body = ''; offset = 0; error = ''; notice = ''; home = false; manageWorkspacesOpen = false; environmentOpen = false; envDraft = null;
+    response = null; body = ''; offset = 0; decoder = new TextDecoder(); error = ''; notice = ''; home = false; manageWorkspacesOpen = false; environmentOpen = false; envDraft = null;
     activeRequestTab = ++nextRequestTab;
     requestTabs.push({ id: activeRequestTab, root: collection?.root ?? null, path: '', source: null, draft, environment, baseUrl, response: null, body: '', offset: 0 });
     await tick(); document.querySelector<HTMLInputElement>('input[aria-label="Request URL"]')?.focus();
@@ -487,7 +487,7 @@
       activeRequestTab = id; selected = item.path; draft = item.draft;
       requestName = draft.value.info?.name ?? 'Untitled'; method = draft.value.http?.method ?? 'GET'; url = draft.value.http?.url ?? '';
       environment = collection?.environments.includes(item.environment) ? item.environment : ''; baseUrl = item.baseUrl;
-      response = item.response; body = item.body; offset = item.offset; decoder = new TextDecoder(); notice = item.recoveryNotice ?? ''; home = false;
+      response = item.response; body = item.body; offset = item.offset; decoder = item.decoder ?? new TextDecoder(); notice = item.recoveryNotice ?? ''; home = false;
       environmentOpen = false;
       await environmentChanged();
     } catch (e) {
@@ -511,7 +511,7 @@
     requestTabs = requestTabs.filter(item => item.id !== id);
     const released = responseId === undefined ? Promise.resolve() : api.releaseResponse(responseId).catch(e => console.warn('Closed response could not be released.', e));
     if (id === activeRequestTab) {
-      draft = null; selected = ''; response = null; body = ''; offset = 0; error = ''; notice = ''; activeRequestTab = 0;
+      draft = null; selected = ''; response = null; body = ''; offset = 0; decoder = new TextDecoder(); error = ''; notice = ''; activeRequestTab = 0;
       const next = requestTabs.at(-1);
       if (next) await activateRequestTab(next.id);
     }
@@ -795,7 +795,7 @@
     requestSummaries = {};
     summaryAttempts.clear(); visibleSummaryRequests = [];
     requestTabs = []; activeRequestTab = 0;
-    workspace = result; collection = null; selected = ''; draft = null; envDraft = null; environmentOpen = false; addingEnvironment = false; environment = ''; secretNames = []; secrets = {}; response = null; body = ''; baseUrl = ''; notice = '';
+    workspace = result; collection = null; selected = ''; draft = null; envDraft = null; environmentOpen = false; addingEnvironment = false; environment = ''; secretNames = []; secrets = {}; response = null; body = ''; offset = 0; decoder = new TextDecoder(); baseUrl = ''; notice = '';
     if (import.meta.env.VITE_NATIVE_VALIDATION === '1') void tick().then(() => recordStage('workspace-dom-flush', renderStarted, result.collections.reduce((count, owner) => count + owner.requests.length, 0)));
     watchWarning = result.watchWarning || lastWatchWarning;
     const active = result.collections.find(item => item.root === result.activeCollection && !item.warning);
@@ -1018,7 +1018,7 @@
     stashRequestTab();
     const version = ++selectionVersion;
     activeRequestTab = 0;
-    selected = path; requestName = ''; response = null; body = ''; error = ''; loading = true;
+    selected = path; requestName = ''; response = null; body = ''; offset = 0; decoder = new TextDecoder(); error = ''; loading = true;
     try {
       const result = await api.request(path);
       if (version !== selectionVersion) return;

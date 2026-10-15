@@ -11,7 +11,8 @@ export function responseFixtures() {
   const prefix = '[\n', suffix = '{}\n]';
   const count = Math.floor((10 * MiB - Buffer.byteLength(prefix + suffix)) / Buffer.byteLength(row));
   const json = Buffer.from(prefix + row.repeat(count) + ' '.repeat(10 * MiB - Buffer.byteLength(prefix + suffix) - count * Buffer.byteLength(row)) + suffix);
-  return { json, line: fill('NP013_LINE_雪🙂|', 2 * MiB), text: fill('NP013_TEXT_雪🙂\n', 2 * MiB) };
+  const prefixLine = Buffer.from('a'.repeat(65535) + '🙂');
+  return { json, line: Buffer.concat([prefixLine, fill('NP013_LINE_雪🙂|', 2 * MiB - prefixLine.length)]), text: fill('NP013_TEXT_雪🙂\n', 2 * MiB) };
 }
 export const fixtureIdentity = payloads => Object.fromEntries(Object.entries(payloads).map(([name, value]) => [name, { bytes: value.length, sha256: hash(value) }]));
 

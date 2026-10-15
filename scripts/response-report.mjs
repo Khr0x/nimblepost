@@ -25,6 +25,7 @@ function validateFamily(sample) {
 }
 export function summarizeResponses(report) {
   assert.equal(report.schemaVersion, 1); assert.equal(report.protocol, responseProtocol); assert.equal(report.status, 'passed');
+  assert.equal(report.mode, 'instrumented-release-ephemeral'); assert.equal(report.absoluteTargetsEvaluated, false);
   assert(report.seriesId && /^[a-f0-9]{40}$/.test(report.source.sha) && !report.source.dirty);
   assert(/^[a-f0-9]{64}$/.test(report.binary.sha256));
   assert.equal(report.environment.platform, 'linux'); assert.equal(report.environment.arch, 'x64');
@@ -91,7 +92,7 @@ export function summarizeResponses(report) {
       assert(launch.phases.flatMap(p => p.samples ?? []).every(s => s[`${metric}Bytes`] <= launch.peakObserved[`${metric}Bytes`]));
     }
     assert.equal(launchResets.length, 3);
-    for (const name of ['chunk', 'scroll', 'wrap', 'tab-empty', 'tab-response', 'cancel']) assert(actionNames.filter(action => action === name).length >= 3, `Missing repeated action: ${name}`);
+    for (const name of ['chunk', 'scroll', 'wrap', 'tab-empty', 'tab-response', 'tab-empty-loading', 'tab-partial', 'cancel']) assert(actionNames.filter(action => action === name).length >= 3, `Missing repeated action: ${name}`);
     const growth = launchResets[2] - launchResets[1];
     deltas.push(growth); resets.push(...launchResets);
     assert(growth <= Math.max(16 * MiB, launchResets[1] * .05), 'PSS did not stabilize between cycles 2 and 3');
@@ -111,10 +112,10 @@ export function compareResponses(reference, candidate) {
   assert.deepEqual(reference.environment, candidate.environment);
   assert.deepEqual(reference.fixtures, candidate.fixtures);
   assert.equal(reference.launchCount, candidate.launchCount);
-  assert.equal(before.budgetStatus, 'passed', 'Reference fails the operational budget');
-  const band = Math.max(16 * MiB, before.resetPssBytes.max - before.resetPssBytes.min);
-  const ceiling = before.resetPssBytes.max + band;
-  const passed = after.budgetStatus === 'passed' && after.resetPssBytes.max <= ceiling;
+  const referenceAccepted = before.budgetStatus === 'passed';
+  const band = referenceAccepted ? Math.max(16 * MiB, before.resetPssBytes.max - before.resetPssBytes.min) : null;
+  const ceiling = referenceAccepted ? before.resetPssBytes.max + band : null;
+  const passed = referenceAccepted && after.budgetStatus === 'passed' && after.resetPssBytes.max <= ceiling;
   return { protocol: responseProtocol, status: passed ? 'passed' : 'failed', referenceSeriesId: reference.seriesId, candidateSeriesId: candidate.seriesId,
-    reference: before, candidate: after, resetPssCeilingBytes: ceiling, calibratedBandBytes: band, absoluteTargetsEvaluated: false };
+    reference: before, candidate: after, referenceAccepted, resetPssCeilingBytes: ceiling, calibratedBandBytes: band, absoluteTargetsEvaluated: false };
 }

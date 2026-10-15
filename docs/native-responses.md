@@ -43,6 +43,9 @@ reemplaza la última respuesta con JSON válido de exactamente 10 MiB, y luego c
 una línea Unicode de 2 MiB. Lee fragmentos IPC reales de 64 KiB, comprueba bytes y
 SHA-256, cambio de tab y copia. El host inyecta un click X11 real sobre Copy y
 calcula SHA-256 de la selección leída por xclip; no intercepta ni simula clipboard.
+La línea larga parte un emoji en el primer límite de 64 KiB; se cambia de tab
+con la respuesta parcial y se exige integridad al completar. El decoder UTF-8
+vive con su respuesta/pestaña y se descarta al cerrar; no entra en recuperación.
 
 El servidor HTTP loopback también sirve 17 MiB chunked sin Content-Length:
 se exige error explícito por límite de 16 MiB y ningún cuerpo parcial retenido.
@@ -84,6 +87,8 @@ fixtures y número de lanzamientos. Recalcula resultados desde muestras, sin con
 en summaries. Estado de serie `passed` indica finalización funcional y de retención;
 `summary.budgetStatus` evalúa interacción. `diagnostic`, `running` y `failed` no son
 referencias válidas. CLI: 0 pasó, 2 presupuesto incumplido, 1 datos/función inválidos.
+El JSON se guarda atómicamente al completar cada fase y lanzamiento; una corrida
+interrumpida conserva su estado parcial y nunca se acepta como referencia.
 Una comparación passed del mismo binario es validación acotada del protocolo/carga,
 no una mejora de rendimiento entre versiones.
 

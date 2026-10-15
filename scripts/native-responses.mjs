@@ -53,7 +53,7 @@ export async function responseWorkspace(directory, url) {
   await save(join(directory, 'profile/recovery.json'), { version: 1, workspaceId: 1, activeTab: null, home: true, tabs: [] });
   await save(join(directory, 'plan.json'), { responses: true, url });
 }
-async function runLaunch(binary, sha, server, iteration) {
+async function runLaunch(binary, sha, server, iteration, checkpoint) {
   const directory = await mkdtemp(join(tmpdir(), 'nimblepost-responses-'));
   const pageSize = Number(command('getconf', ['PAGESIZE'])), hz = Number(command('getconf', ['CLK_TCK']));
   let child, known = [], startTicks, sampling, stopped = false, sampleError, stderr = '';
@@ -123,6 +123,7 @@ async function runLaunch(binary, sha, server, iteration) {
           phase.samples.push({ ...point, afterMarkerMs: point.observed - observed });
         }
       }
+      await checkpoint(phases, ready);
     }
     const smoke = await marker('smoke'); assert.equal(smoke.payload.error, '');
     stopped = true; await sampling;
@@ -130,7 +131,7 @@ async function runLaunch(binary, sha, server, iteration) {
     const checkedProfile = [];
     for (const path of await files(join(directory, 'profile'))) {
       const value = await readFile(path, 'utf8');
-      assert(!/NP013_(JSON|LINE|TEXT|RUNTIME_SECRET_CANARY)/.test(value), 'Body or runtime secret reached persistent profile');
+      assert(!/NP013_(JSON|LINE|TEXT|RUNTIME_SECRET_CANARY)|a{512}|x{512}/.test(value), 'Body or runtime secret reached persistent profile');
       checkedProfile.push({ path: path.slice(join(directory, 'profile').length + 1), sha256: hash(value) });
     }
     assert(checkedProfile.some(p => p.path === 'history.json') && checkedProfile.some(p => p.path === 'recovery.json'), 'Privacy check requires actual history and recovery files');
@@ -172,13 +173,17 @@ export async function main(args) {
   assert.equal(process.arch, 'x64', 'NP-013 acceptance currently supports Linux x64');
   const server = await serveResponses();
   const report = { schemaVersion: 1, protocol: responseProtocol, seriesId: randomUUID(), status: 'running', source, launchCount, launches: [],
+    mode: 'instrumented-release-ephemeral', absoluteTargetsEvaluated: false,
     binary: { sha256: hash(bytes), bytes: (await stat(binary)).size }, fixtures: server.fixtures,
     environment: { platform: process.platform, arch: process.arch, hostHash: hash(hostname()), cpu: cpus()[0].model, cpuCount: cpus().length,
       ramBytes: totalmem(), osRelease: release(), webview: command('dpkg-query', ['-W', '-f=${Version}', 'libwebkit2gtk-4.1-0']), conditions: options.conditions } };
   await mkdir(resolve(output, '..'), { recursive: true }); await save(output, report);
   try {
     for (let iteration = 1; iteration <= launchCount; iteration++) {
-      report.launches.push(await runLaunch(binary, source.sha, server, iteration)); await save(output, report);
+      report.launches.push(await runLaunch(binary, source.sha, server, iteration, async (phases, ready) => {
+        report.partialLaunch = { iteration, ready, phases }; await save(output, report);
+      }));
+      delete report.partialLaunch; await save(output, report);
       console.log(`responses launch=${iteration}/${launchCount}`);
     }
     report.status = launchCount >= 5 ? 'passed' : 'diagnostic';

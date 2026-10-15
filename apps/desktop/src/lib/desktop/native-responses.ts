@@ -89,7 +89,11 @@ export async function validateResponses(controls: MemoryControls) {
     ensure(document.querySelector('.response-body-note')?.textContent?.includes('too large'), 'Large JSON must retain explicit formatting fallback');
     await phase(cycle, 'json', { content: await content(), renderedRows: document.querySelectorAll('[data-response-line]').length });
     await copy(cycle, 'json');
-    await send(`${controls.url}/line`); await complete(); clean();
+    await send(`${controls.url}/line`);
+    ensure(controls.inspect().activeOffset === 65536, 'Partial response must stop inside the fixture emoji');
+    await action('tab-empty-loading', () => controls.activate(tabs[0]), () => !document.querySelector('.response-panel'));
+    await action('tab-partial', () => controls.activate(tabs.at(-1)!), () => controls.inspect().activeOffset === 65536 && !!document.querySelector('.body-more'));
+    await complete(); clean();
     const lineHash = await digest(controls.body());
     const viewport = inspectView();
     await action('scroll', () => { viewport.scrollTop = viewport.scrollHeight; viewport.dispatchEvent(new Event('scroll')); }, () => {
