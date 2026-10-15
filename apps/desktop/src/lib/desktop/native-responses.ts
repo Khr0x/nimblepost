@@ -13,14 +13,14 @@ const digest = async (text: string) => [...new Uint8Array(await crypto.subtle.di
 export async function validateResponses(controls: MemoryControls) {
   stopProfiling();
   if (controls.responseDiagnostics) traceNativeIpc();
-  if (controls.fineProfile) {
+  const waitForHeapProfile = async () => {
     const deadline = performance.now() + 90000;
     while (!(await api.workspace()).validationPlan?.profileReady) {
       ensure(performance.now() < deadline, 'WebKit heap profiler did not become ready');
       await delay(250);
     }
-    profileResponses();
-  }
+  };
+  if (controls.fineProfile) profileResponses();
   const clearIpc = () => { for (const entry of performance.getEntriesByType('measure')) if (entry.name.startsWith('native-ipc:')) performance.clearMeasures(entry.name); };
   const send = async (url: string, raw = false) => {
     await controls.useEnvironment();
@@ -104,6 +104,20 @@ export async function validateResponses(controls: MemoryControls) {
     await controls.open('request-00000.yml');
     for (let request = 1; request < 64; request++) await controls.open(`request-${String(request).padStart(5, '0')}.yml`);
     ensure(clean().tabs.length === 64, 'Expected 64 tabs');
+    const group = document.querySelector<HTMLFieldSetElement>('fieldset.request-tabs-track');
+    ensure(group && !group.disabled, 'Native tab group must be enabled');
+    const blockedTab = group!.querySelector<HTMLButtonElement>('.request-tab-trigger')!;
+    const urlInput = document.querySelector<HTMLInputElement>('input[aria-label="Request URL"]');
+    urlInput!.focus();
+    let clicked = false;
+    const clickedWhileDisabled = () => { clicked = true; };
+    blockedTab.addEventListener('click', clickedWhileDisabled);
+    group!.disabled = true;
+    ensure(blockedTab.matches(':disabled'), 'Tabs must inherit native disabled state');
+    blockedTab.focus(); ensure(document.activeElement !== blockedTab, 'Disabled tabs received keyboard focus');
+    blockedTab.click(); group!.disabled = false;
+    blockedTab.removeEventListener('click', clickedWhileDisabled);
+    ensure(!clicked, 'A disabled tab received a native click');
     const tabs = controls.inspect().tabs;
     const loaded = [];
     for (const tab of tabs.slice(-4)) {
@@ -116,6 +130,7 @@ export async function validateResponses(controls: MemoryControls) {
     }
     await controls.activate(tabs[0]); await controls.activate(tabs.at(-1)!);
     await phase(cycle, 'four-responses', { content: await content(), loaded });
+    if (controls.heapProfile) await waitForHeapProfile();
     await send(`${controls.url}/json`); await complete(); clean();
     ensure(document.querySelector('.response-body-note')?.textContent?.includes('too large'), 'Large JSON must retain explicit formatting fallback');
     await phase(cycle, 'json', { content: await content(), renderedRows: document.querySelectorAll('[data-response-line]').length });
@@ -136,6 +151,10 @@ export async function validateResponses(controls: MemoryControls) {
     await action('wrap', () => toggle!.click(), () => toggle?.getAttribute('aria-pressed') !== wasWrapped);
     await action('tab-empty', () => controls.activate(tabs[0]), () => !document.querySelector('.response-panel') && controls.inspect().activeTab === tabs[0]);
     await action('tab-response', () => controls.activate(tabs.at(-1)!), () => !!document.querySelector('.response-panel') && controls.inspect().activeTab === tabs.at(-1));
+    const activeButton = document.querySelector<HTMLElement>('.request-document.active .request-tab-trigger');
+    const tabViewport = document.querySelector<HTMLElement>('.request-tabs-list');
+    const activeRect = activeButton!.getBoundingClientRect(), tabRect = tabViewport!.getBoundingClientRect();
+    ensure(activeRect.left >= tabRect.left - 1 && activeRect.right <= tabRect.right + 1, 'Active tab is outside its scroll viewport');
     ensure(await digest(controls.body()) === lineHash, 'Tab switch changed the response');
     const uiProfile = [];
     if (controls.fineProfile) {

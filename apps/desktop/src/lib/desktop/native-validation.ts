@@ -21,6 +21,7 @@ export interface MemoryControls {
   responses?: boolean;
   responseDiagnostics?: boolean;
   fineProfile?: boolean;
+  heapProfile?: boolean;
   treeOnly?: boolean;
   responseOnly?: boolean;
   heapInspector?: boolean;

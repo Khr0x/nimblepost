@@ -56,17 +56,18 @@
 
 <nav class="request-tabs" aria-label="Request tabs">
   <div class="request-tabs-list" bind:this={requestTabsList} use:observeRequestTabs onscroll={updateTabNavigation}>
-    <div class="request-tabs-track">
+    <fieldset class="request-tabs-track" {disabled}>
+      <legend class="sr-only">Open request tabs</legend>
       {#each tabs as item (item.id)}
         {@const current = item.id === activeId}
         {@const value = current ? draft?.value : item.draft.value}
         {@const name = value?.info?.name ?? 'Untitled'}
         <div class="request-document" class:active={current} data-tab-id={item.id}>
-          <Button variant="ghost" class="request-tab-trigger" title={name} aria-label={`Open request tab ${item.id}: ${name}`} aria-pressed={current} {disabled} onclick={() => onactivate(item.id)}><span class="http-method" data-method={value?.http?.method ?? 'GET'}>{value?.http?.method ?? 'GET'}</span><span class="request-tab-name">{name}</span>{#if current ? isEdited : item.draft.edits.length}<span class="request-dirty" aria-label="Unsaved changes"></span>{/if}</Button>
-          <Button variant="ghost" class="request-tab-close" aria-label={`Close request tab ${item.id}: ${name}`} title="Close tab" {disabled} onclick={() => onclose(item.id)}><X size={12} aria-hidden="true" /></Button>
+          <Button variant="ghost" class="request-tab-trigger" title={name} aria-label={`Open request tab ${item.id}: ${name}`} aria-pressed={current} onclick={() => onactivate(item.id)}><span class="http-method" data-method={value?.http?.method ?? 'GET'}>{value?.http?.method ?? 'GET'}</span><span class="request-tab-name">{name}</span>{#if current ? isEdited : item.draft.edits.length}<span class="request-dirty" aria-label="Unsaved changes"></span>{/if}</Button>
+          <Button variant="ghost" class="request-tab-close" aria-label={`Close request tab ${item.id}: ${name}`} title="Close tab" onclick={() => onclose(item.id)}><X size={12} aria-hidden="true" /></Button>
         </div>
       {/each}
-    </div>
+    </fieldset>
   </div>
   {#if tabsOverflow}
     <div class="request-tabs-navigation">

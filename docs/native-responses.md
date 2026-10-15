@@ -136,10 +136,12 @@ y las limitaciones de [mallinfo](https://man7.org/linux/man-pages/man3/mallinfo.
 
 ### Perfil fino antes de corregir
 
-El escenario manual `response-profile` usa `responses-linux-profile-v1`: un ciclo,
+El escenario manual `response-profile` usa `responses-linux-profile-v2`: un ciclo,
 11 fases y reposo final. Activa agregados frontend acotados (32 etapas/16 muestras
 por etapa), mapeos por familia y heaptrack sobre el WebKit del perfil sintético.
-Comprueba PID/starttime e inyección antes de liberar la sonda; falla explícitamente
+Abre/carga las 64 tabs antes de insertar heaptrack; comprueba PID/starttime e
+inyección antes de continuar con JSON/línea/cierre. Omite el sampler malloc_info
+durante la inyección para separar herramientas; conserva PSS/mapeos/CPU. Falla explícitamente
 si no se puede perfilar. GDB requiere ptrace en el runner efímero; ningún otro
 escenario modifica esa configuración. Heaptrack puede alterar tiempos/uso y su
 inserción es inestable: este perfil no acredita rendimiento de producción.
@@ -156,9 +158,17 @@ La captura empieza tras arrancar: no ve asignaciones previas ni todos los
 asignadores propios, y algunos símbolos pueden faltar. `Not freed` al terminar
 el proceso significa retención observada, no prueba de fuga. Ver
 [heaptrack](https://github.com/KDE/heaptrack#using-heaptrack).
+El plazo es ocho minutos por lanzamiento; solicita profundidad de 16 frames por
+entorno (según soporte de la versión instalada). Ante fallo conserva el resumen
+que alcance a producir y un error explícito. La v1 anterior falló por timeout y
+no produjo stacks utilizables; su evidencia permanece separada.
 
 `response-ui-profile` repite el mismo ciclo/ablaciones/mapeos y timings sin
 heaptrack, con protocolo `responses-linux-ui-profile-v1`. Es el control para
 localizar coste UI sin inyección; nunca acredita aceptación ni se mezcla con el
 perfil intrusivo. Las diferencias entre modos dentro de una corrida orientan
 el siguiente cambio; no comparar porcentajes entre jobs/hosts diferentes.
+
+La barra conserva todos los tabs en DOM y teclado nativo. Un fieldset agrupa el
+estado disabled, en vez de actualizar 128 atributos; los tabs solo animan colores.
+La sonda verifica bloqueo nativo de click/foco y visibilidad del tab activo.

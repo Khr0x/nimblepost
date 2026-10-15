@@ -39,7 +39,7 @@ async function collectionHash(directory) {
   const paths = (await files(directory)).sort();
   return hash((await Promise.all(paths.map(async p => `${p.slice(directory.length)}:${hash(await readFile(p))}`))).join('\n'));
 }
-export async function responseWorkspace(directory, url, diagnostics = false, fineProfile = false) {
+export async function responseWorkspace(directory, url, diagnostics = false, fineProfile = false, heapProfile = false) {
   await fixtures(directory, 100);
   const workspace = await json(join(directory, 'profile/workspaces.json'));
   workspace.workspaces.push({ id: 2, name: 'Empty validation workspace', collections: [], activeCollection: null });
@@ -53,21 +53,22 @@ export async function responseWorkspace(directory, url, diagnostics = false, fin
   await save(join(directory, 'collection/environments/validation.yml'), { name: 'validation', variables: [{ name: 'np013-token', secret: true, type: 'string' }] });
   // Recovery refers to the original request; begin with clean tabs for this protocol.
   await save(join(directory, 'profile/recovery.json'), { version: 1, workspaceId: 1, activeTab: null, home: true, tabs: [] });
-  await save(join(directory, 'plan.json'), { responses: true, url, ...(diagnostics ? { responseDiagnostics: true } : {}), ...(fineProfile ? { fineProfile:true } : {}) });
+  await save(join(directory, 'plan.json'), { responses: true, url, ...(diagnostics ? { responseDiagnostics: true } : {}), ...(fineProfile ? { fineProfile:true } : {}), ...(heapProfile ? { heapProfile:true } : {}) });
 }
 async function runLaunch(binary, sha, server, iteration, checkpoint, allocatorLibrary, fineProfile, heapRequested) {
   const directory = await mkdtemp(join(tmpdir(), 'nimblepost-responses-'));
   const pageSize = Number(command('getconf', ['PAGESIZE'])), hz = Number(command('getconf', ['CLK_TCK']));
-  let child, known = [], startTicks, sampling, stopped = false, sampleError, stderr = '', heapSession, outcome;
+  let child, known = [], startTicks, sampling, stopped = false, sampleError, stderr = '', heapSession, outcome, failure;
   const points = [], phases = [], trafficStart = server.traffic.length;
   try {
-    await responseWorkspace(directory, server.url, !!allocatorLibrary, fineProfile);
+    await responseWorkspace(directory, server.url, !!allocatorLibrary, fineProfile, heapRequested);
     const before = await collectionHash(join(directory, 'collection'));
     child = spawn(binary, [], { env: { ...process.env, NIMBLEPOST_VALIDATION_DIR: directory,
-      ...(allocatorLibrary ? { LD_PRELOAD: allocatorLibrary, NP013_ALLOCATOR_DIAGNOSTIC_DIR: directory } : {}) }, stdio: ['ignore', 'ignore', 'pipe'] });
+      ...(allocatorLibrary && !heapRequested ? { LD_PRELOAD: allocatorLibrary, NP013_ALLOCATOR_DIAGNOSTIC_DIR: directory } : {}),
+      ...(heapRequested ? { HEAPTRACK_UNWIND_DEPTH:'16' } : {}) }, stdio: ['ignore', 'ignore', 'pipe'] });
     child.stderr.on('data', data => { stderr = (stderr + data).slice(-8192); });
     let spawnError; child.on('error', error => { spawnError = error; });
-    const deadline = performance.now() + (fineProfile ? 1200000 : allocatorLibrary ? 600000 : 360000);
+    const deadline = performance.now() + (heapRequested ? 480000 : allocatorLibrary ? 600000 : 360000);
     const alive = () => { if (spawnError) throw spawnError; assert(child.exitCode === null && child.signalCode === null, 'Application exited'); if (sampleError) throw sampleError; assert(performance.now() < deadline, 'Response launch timed out'); };
     const marker = async name => {
       while (true) {
@@ -81,14 +82,6 @@ async function runLaunch(binary, sha, server, iteration, checkpoint, allocatorLi
     const ready = await marker('ready');
     assert.equal(ready.buildSha, sha); assert.equal(ready.debugAssertions, false); assert.equal(ready.inspector, false);
     assert.equal(ready.payload.error, ''); assert.equal(ready.payload.requests, 100);
-    if (fineProfile) {
-      if (heapRequested) {
-        known=await family(child.pid,null,pageSize,hz);
-        const webkit=known.filter(p=>/^WebKitWebProces/.test(p.name)); assert.equal(webkit.length,1);
-        heapSession=await attachHeapProfile(webkit[0],directory,pageSize,hz);
-      }
-      await writeFile(join(directory,'heaptrack-ready'),'ready\n');
-    }
     sampling = (async () => {
       while (!stopped) {
         try {
@@ -137,7 +130,7 @@ async function runLaunch(binary, sha, server, iteration, checkpoint, allocatorLi
       }
       if (allocatorLibrary && probe.payload.name !== 'copy') {
         phase.allocatorSamples = [];
-        for (const proc of phase.samples.at(-1).processes) {
+        for (const proc of heapRequested ? [] : phase.samples.at(-1).processes) {
           let xml;
           try { xml = await readFile(join(directory, `allocator-${proc.pid}.xml`), 'utf8'); }
           catch (error) { if (error.code === 'ENOENT' && proc.pid !== child.pid) continue; throw error; }
@@ -146,12 +139,17 @@ async function runLaunch(binary, sha, server, iteration, checkpoint, allocatorLi
           assert.equal(parseStat(await readFile(`/proc/${proc.pid}/stat`, 'utf8'), pageSize, hz).startTicks, proc.startTicks);
           phase.allocatorSamples.push({ ...allocator, startTicks: proc.startTicks, ageMs, xml });
         }
-        assert(phase.allocatorSamples.some(sample => sample.pid === child.pid), 'Missing root allocator sample');
+        if (!heapRequested) assert(phase.allocatorSamples.some(sample => sample.pid === child.pid), 'Missing root allocator sample');
         phase.host = { loadAverage: loadavg(), cpuPressure: await readFile('/proc/pressure/cpu', 'utf8') };
         if (fineProfile) {
           phase.mappings=[];
           for (const proc of phase.samples.at(-1).processes) phase.mappings.push({pid:proc.pid,startTicks:proc.startTicks,groups:smapsGroups(await readFile(`/proc/${proc.pid}/smaps`,'utf8'))});
         }
+      }
+      if (heapRequested && probe.payload.name === 'four-responses') {
+        const webkit=phase.samples.at(-1).processes.filter(p=>/^WebKitWebProces/.test(p.name)); assert.equal(webkit.length,1);
+        heapSession=await attachHeapProfile(webkit[0],directory,pageSize,hz);
+        await writeFile(join(directory,'heaptrack-ready'),'ready\n');
       }
       await checkpoint(phases, ready);
     }
@@ -170,6 +168,7 @@ async function runLaunch(binary, sha, server, iteration, checkpoint, allocatorLi
         pss: points.reduce((a, b) => a.pssBytes >= b.pssBytes ? a : b), rss: points.reduce((a, b) => a.rssBytes >= b.rssBytes ? a : b), intervalMs: 100, samples: points.length } };
     return outcome;
   } catch (error) {
+    failure=error;
     error.partialPhases = phases;
     error.message += stderr ? `\nApplication stderr: ${stderr}` : '';
     throw error;
@@ -184,7 +183,12 @@ async function runLaunch(binary, sha, server, iteration, checkpoint, allocatorLi
       if (child.exitCode === null && child.signalCode === null) { child.kill('SIGTERM'); await Promise.race([new Promise(resolve => child.once('exit', resolve)), delay(2000)]); }
       if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
     }
-    try { if (heapSession) { const heapProfile=await heapSession.finish(); if(outcome) outcome.heapProfile=heapProfile; } }
+    try {
+      if (heapSession) {
+        try { const heapProfile=await heapSession.finish(); if(outcome) outcome.heapProfile=heapProfile; else if(failure) failure.heapProfile=heapProfile; }
+        catch (error) { if(failure) failure.heapProfileError=error.message; else throw error; }
+      }
+    }
     finally { await rm(directory, { recursive: true, force: true }); }
   }
 }
@@ -210,12 +214,13 @@ export async function main(args) {
   const fineProfile=heapRequested || uiProfile; assert(!fineProfile || allocatorLibrary,'Fine profiling requires the diagnostic mode');
   if (allocatorLibrary) assert.equal(launchCount, 1, 'Allocator diagnostics are not acceptance series');
   const server = await serveResponses();
-  const report = { schemaVersion: 1, protocol: heapRequested ? 'responses-linux-profile-v1' : uiProfile ? 'responses-linux-ui-profile-v1' : allocatorLibrary ? diagnosticProtocol : responseProtocol, seriesId: randomUUID(), status: 'running', source, launchCount, launches: [],
+  const report = { schemaVersion: 1, protocol: heapRequested ? 'responses-linux-profile-v2' : uiProfile ? 'responses-linux-ui-profile-v1' : allocatorLibrary ? diagnosticProtocol : responseProtocol, seriesId: randomUUID(), status: 'running', source, launchCount, launches: [],
     mode: 'instrumented-release-ephemeral', absoluteTargetsEvaluated: false,
     binary: { sha256: hash(bytes), bytes: (await stat(binary)).size }, fixtures: server.fixtures,
     environment: { platform: process.platform, arch: process.arch, hostHash: hash(hostname()), cpu: cpus()[0].model, cpuCount: cpus().length,
       ramBytes: totalmem(), osRelease: release(), webview: command('dpkg-query', ['-W', '-f=${Version}', 'libwebkit2gtk-4.1-0']), conditions: options.conditions },
-    ...(allocatorLibrary ? { diagnostics: { allocatorLibrarySha256: hash(await readFile(allocatorLibrary)), libc: command('getconf', ['GNU_LIBC_VERSION']), intervalMs: 1000, acceptanceEligible: false } } : {}) };
+    ...(allocatorLibrary ? { diagnostics: { allocatorLibrarySha256: hash(await readFile(allocatorLibrary)), allocatorSamplesEnabled:!heapRequested, libc: command('getconf', ['GNU_LIBC_VERSION']), intervalMs: 1000, acceptanceEligible: false,
+      ...(heapRequested ? { heapAttachPhase:'four-responses', requestedUnwindDepth:16 } : {}) } } : {}) };
   await mkdir(resolve(output, '..'), { recursive: true }); await save(output, report);
   try {
     for (let iteration = 1; iteration <= launchCount; iteration++) {
@@ -229,7 +234,10 @@ export async function main(args) {
     if (launchCount >= 5) report.summary = summarizeResponses(report);
     await save(output, report); return report.summary?.budgetStatus === 'failed' ? 2 : 0;
   } catch (error) {
-    report.status = 'failed'; report.error = error.message; report.partialPhases = error.partialPhases; await save(output, report); throw error;
+    report.status = 'failed'; report.error = error.message; report.partialPhases = error.partialPhases;
+    if(error.heapProfile) report.heapProfile=error.heapProfile;
+    if(error.heapProfileError) report.heapProfileError=error.heapProfileError;
+    await save(output, report); throw error;
   } finally { await server.close(); }
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

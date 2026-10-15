@@ -843,6 +843,7 @@
           responses: workspace.validationPlan.responses,
           responseDiagnostics: workspace.validationPlan.responseDiagnostics,
           fineProfile: workspace.validationPlan.fineProfile,
+          heapProfile: workspace.validationPlan.heapProfile,
           treeOnly: workspace.validationPlan.treeOnly,
           responseOnly: workspace.validationPlan.responseOnly,
           heapInspector: workspace.validationPlan.heapInspector,
