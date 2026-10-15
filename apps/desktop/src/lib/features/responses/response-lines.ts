@@ -1,8 +1,19 @@
 export const RESPONSE_LINE_HEIGHT = 21.6;
 export const RESPONSE_LINE_LIMIT = 500;
 export const RESPONSE_OVERSCAN = 6;
+export const RESPONSE_SEGMENT_LENGTH = 2048;
+
+export function hasLongLines(text: string): boolean {
+  let start = 0;
+  for (const match of text.matchAll(/\r\n|\r|\n/g)) {
+    if (match.index - start > RESPONSE_SEGMENT_LENGTH) return true;
+    start = match.index + match[0].length;
+  }
+  return text.length - start > RESPONSE_SEGMENT_LENGTH;
+}
 
 export function hasManyLines(text: string): boolean {
+  if (hasLongLines(text)) return true;
   let count = 1;
   for (const _ of text.matchAll(/\r\n|\r|\n/g)) if (++count > RESPONSE_LINE_LIMIT) return true;
   return false;
@@ -11,7 +22,19 @@ export function hasManyLines(text: string): boolean {
 // Keep offsets into the original body, rather than a second array of strings.
 export function responseLineStarts(text: string): Uint32Array {
   const starts = [0];
-  for (const match of text.matchAll(/\r\n|\r|\n/g)) starts.push(match.index + match[0].length);
+  const segments = (end: number) => {
+    while (end - starts[starts.length - 1] > RESPONSE_SEGMENT_LENGTH) {
+      let next = starts[starts.length - 1] + RESPONSE_SEGMENT_LENGTH;
+      // Keep UTF-16 surrogate pairs together at visual segment boundaries.
+      if (text.charCodeAt(next - 1) >= 0xd800 && text.charCodeAt(next - 1) <= 0xdbff && text.charCodeAt(next) >= 0xdc00 && text.charCodeAt(next) <= 0xdfff) next--;
+      starts.push(next);
+    }
+  };
+  for (const match of text.matchAll(/\r\n|\r|\n/g)) {
+    segments(match.index);
+    starts.push(match.index + match[0].length);
+  }
+  segments(text.length);
   return Uint32Array.from(starts);
 }
 

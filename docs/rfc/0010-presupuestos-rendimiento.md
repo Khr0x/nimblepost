@@ -12,6 +12,11 @@ declara un gate de release ni acredita objetivos absolutos. No comparar esas
 series con reportes v1, macOS o Windows. Los adaptadores de estos dos SO y las
 mediciones de cold start/memoria física siguen pendientes.
 
+NP-013 añade el protocolo Linux [responses-linux-v1](../native-responses.md) para
+casos HTTP grandes, copia real, ciclos repetidos e interacción. Sus criterios y
+límites se definen antes de medir; la implementación por sí sola no acredita
+aceptación. Los apartados v1 siguientes conservan el contexto histórico.
+
 ## Propósito
 
 Convertir las metas de la [propuesta](../../roadmap/api-client-local-first-open-source-propuesta.md#41-performance-budgets)

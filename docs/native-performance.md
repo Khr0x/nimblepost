@@ -93,3 +93,7 @@ entre versiones usar un host persistente y referencia seleccionada explícitamen
 NP-012: cold start, memoria física/PSS/private, CPU, tamaño y presupuestos absolutos.
 NP-013: respuestas, retención e interacción. Adaptadores macOS/Windows requieren
 atribución fiable y evidencia propia.
+
+El escenario manual `responses` se describe en [NP-013](native-responses.md).
+`startup` conserva el protocolo de arranque. Una corrida diagnóstica de un
+lanzamiento de respuestas no equivale a una serie de aceptación.

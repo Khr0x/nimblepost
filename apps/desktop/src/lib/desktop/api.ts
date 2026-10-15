@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { RecoverySnapshot, RecoveryView } from '../features/requests/recovery';
 
 export interface Collection { name: string; root: string; requests: string[]; folders: string[]; environments: string[]; readOnly: boolean; warning?: string | null }
-export interface WorkspaceView { workspaces: { id: number; name: string }[]; activeWorkspaceId: number; collections: Collection[]; activeCollection: string | null; warning: string | null; watchWarning?: string | null; validationPlan?: { url: string; treeOnly?: boolean; responseOnly?: boolean; heapInspector?: boolean; hideResponseView?: boolean } | null }
+export interface WorkspaceView { workspaces: { id: number; name: string }[]; activeWorkspaceId: number; collections: Collection[]; activeCollection: string | null; warning: string | null; watchWarning?: string | null; validationPlan?: { url: string; responses?: boolean; treeOnly?: boolean; responseOnly?: boolean; heapInspector?: boolean; hideResponseView?: boolean } | null }
 export interface CollectionChange { roots: string[]; warning: string | null }
 export interface RequestInspection { request: RequestInfo; changed: boolean | null }
 export interface FieldEdit { path: string[]; value: unknown }

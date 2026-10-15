@@ -76,18 +76,18 @@ pub fn setup(
     } else {
         None
     });
-    for stage in ["ready", "profile", "memory", "smoke"] {
+    for stage in ["ready", "profile", "memory", "responses", "smoke"] {
         let directory = directory.clone();
         let handle = app.handle().clone();
         app.listen(format!("native-validation-{stage}"), move |event| {
             let result = (|| -> Result<(), Box<dyn std::error::Error>> {
                 let payload: serde_json::Value = serde_json::from_str(event.payload())?;
-                let filename = if stage == "memory" {
+                let filename = if stage == "memory" || stage == "responses" {
                     let index = payload["index"]
                         .as_u64()
-                        .filter(|index| *index < 16)
+                        .filter(|index| *index < if stage == "responses" { 64 } else { 16 })
                         .ok_or("Invalid memory phase")?;
-                    format!("memory-{index}.json")
+                    format!("{stage}-{index}.json")
                 } else {
                     format!("{stage}.json")
                 };

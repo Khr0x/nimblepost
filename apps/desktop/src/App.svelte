@@ -833,6 +833,7 @@
           untitled,
         }, renderStarted, workspace?.validationPlan ? {
           url: workspace.validationPlan.url,
+          responses: workspace.validationPlan.responses,
           treeOnly: workspace.validationPlan.treeOnly,
           responseOnly: workspace.validationPlan.responseOnly,
           heapInspector: workspace.validationPlan.heapInspector,
@@ -842,10 +843,14 @@
           activate: activateRequestTab,
           close: async (id: number) => { await closeRequestTab(id); if (closingRequestTab === id) await discardClosingTab(); },
           send: async (address: string) => { change(['http', 'url'], address); await send(); if (error || !response) throw new Error(error || 'No response'); },
+          sendRaw: async (address: string) => { change(['http', 'url'], address); await send(); },
+          provideSecret: (name: string, value: string) => { secrets[name] = value; },
+          body: () => body,
           more: loadMore,
-          reset: () => changeWorkspace(2),
+          reset: (id = 2) => changeWorkspace(id),
           inspect: () => ({
             tabs: requestTabs.map(item => item.id),
+            activeTab: activeRequestTab, busy, chunkLoading,
             activeBodyChars: body.length, activeOffset: offset, bodyBytes: response?.bodyBytes ?? 0,
             cachedBodyChars: requestTabs.reduce((sum, item) => sum + item.body.length, 0),
             activeCachedBodyChars: requestTabs.find(item => item.id === activeRequestTab)?.body.length ?? 0,
