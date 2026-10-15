@@ -76,6 +76,13 @@ candidatos blocked. Exit codes: 0 passed/warning, 1 datos/uso inválido, 2 block
 
 ## Workflow y pendientes
 
+Se ejecuta exclusivamente a demanda: **Actions → Native performance tooling →
+Run workflow → seleccionar rama → Run workflow**. GitHub ofrece el botón cuando
+el workflow existe en la rama predeterminada. Registrar el SHA resuelto de la
+ejecución. Push/PR conserva las pruebas rápidas del contrato/comparador con
+`npm test`; las mediciones reales deben solicitarse al validar cambios de
+rendimiento y conservar su evidencia para el SHA candidato.
+
 `Native performance tooling` construye en Ubuntu x64 y recoge dos series del
 mismo binario en el mismo host. Publica reportes completos/parciales durante 30
 días; no publica instaladores instrumentados. La autocomprobación conserva

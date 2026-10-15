@@ -2,14 +2,6 @@ name: Native performance tooling
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - '.github/workflows/native-performance.yml'
-      - 'scripts/native-performance.mjs'
-      - 'scripts/performance-report*.mjs'
-      - 'apps/desktop/src-tauri/src/validation.rs'
-      - 'apps/desktop/src-tauri/src/lib.rs'
-      - 'apps/desktop/src/lib/desktop/native-*.ts'
 
 permissions:
   contents: read

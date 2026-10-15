@@ -192,7 +192,7 @@ No se considera implementado el contrato por haber validado ejemplos con Node.
 El backend Rust deberá pasar los mismos fixtures y las pruebas de comportamiento
 antes de utilizarse desde Desktop o CLI.
 
-La [validación nativa de CI](../../.github/workflows/native-validation.yml) compila,
+La [validación nativa manual](../../.github/workflows/native-validation.yml) compila,
 instala y abre los paquetes de Windows y Linux, y ejecuta las pruebas Rust.
 Los resultados Windows/Linux x64 siguen pendientes. El
 [RFC-0010](0010-presupuestos-rendimiento.md) conserva el protocolo de rendimiento

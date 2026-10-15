@@ -5,6 +5,17 @@ below. Backend tests do not prove that the installed UI can perform those action
 
 ## Automated checks
 
+This workflow is started manually: **Actions → Native distribution validation →
+Run workflow → select the branch → Run workflow**. The workflow must exist on the
+default branch for GitHub to offer the manual run button. Record the resolved SHA
+from the run, not just the branch name.
+
+Push/PR CI keeps frontend checks and Rust formatting, Clippy and tests. It does not
+build or exercise Windows/Linux installers. The release workflow also reuses that
+lighter CI; run native distribution validation for the package source SHA before
+accepting Windows/Linux packages for release. Keep the interactive checklist below
+as a separate acceptance requirement.
+
 `.github/workflows/native-validation.yml` runs on Windows 2025 and Ubuntu 24.04
 x64. It tests the Rust workspace, builds production installers without validation
 hooks, checks the packaged example, installs, launches and uninstalls the package.
