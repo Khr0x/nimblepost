@@ -92,6 +92,10 @@ pub fn setup(
                     format!("{stage}.json")
                 };
                 let report = serde_json::json!({
+                    "buildSha": option_env!("NIMBLEPOST_BUILD_SHA"),
+                    "version": env!("CARGO_PKG_VERSION"),
+                    "debugAssertions": cfg!(debug_assertions),
+                    "inspector": cfg!(feature = "native-inspector"),
                     "backendStartupMs": started.elapsed().as_secs_f64() * 1000.0,
                     "payload": payload,
                     "backendStages": STAGES.lock().unwrap().clone(),
