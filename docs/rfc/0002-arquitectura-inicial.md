@@ -196,7 +196,9 @@ La [validación nativa de CI](../../.github/workflows/native-validation.yml) com
 instala y abre los paquetes de Windows y Linux, y ejecuta las pruebas Rust.
 Los resultados Windows/Linux x64 siguen pendientes. El
 [RFC-0010](0010-presupuestos-rendimiento.md) conserva el protocolo de rendimiento
-como referencia; sus herramientas y reportes se retiraron del repositorio.
+v1 como referencia histórica; NP-011 restablece un
+[runner/comparador Linux v2](../native-performance.md) con perfiles aislados y
+reportes actuales, incompatible con las series v1.
 Los objetivos absolutos pendientes no son garantías derivadas de elegir Tauri o Rust.
 
 
