@@ -132,5 +132,7 @@ test('The manual workflow propagates a runner failure through its actual logging
     assert.equal(referenceFailure.status,2);
     const diagnosticFailure=spawnSync('bash',['--noprofile','--norc','-e','-o','pipefail','-c',step.run],{cwd:directory,encoding:'utf8',env:{...process.env,PATH:`${directory}:${process.env.PATH}`,SCENARIO:'response-diagnostics',LAUNCHES:'5',NP013_EXIT_CODE:'1'}});
     assert.equal(diagnosticFailure.status,1);
+    const profileFailure=spawnSync('bash',['--noprofile','--norc','-e','-o','pipefail','-c',step.run],{cwd:directory,encoding:'utf8',env:{...process.env,PATH:`${directory}:${process.env.PATH}`,SCENARIO:'response-profile',LAUNCHES:'5',NP013_EXIT_CODE:'1'}});
+    assert.equal(profileFailure.status,1);
   } finally { rmSync(directory,{recursive:true,force:true}); }
 });

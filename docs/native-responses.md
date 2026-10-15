@@ -128,3 +128,26 @@ no son equivalentes. El preload añade un hilo y carga; no demuestra ausencia de
 fugas ni acredita rendimiento de producción. No fuerza GC, trim ni modifica
 límites del asignador. Véase [malloc_info](https://man7.org/linux/man-pages/man3/malloc_info.3.html)
 y las limitaciones de [mallinfo](https://man7.org/linux/man-pages/man3/mallinfo.3.html).
+
+### Perfil fino antes de corregir
+
+El escenario manual `response-profile` usa `responses-linux-profile-v1`: un ciclo,
+11 fases y reposo final. Activa agregados frontend acotados (32 etapas/16 muestras
+por etapa), mapeos por familia y heaptrack sobre el WebKit del perfil sintético.
+Comprueba PID/starttime e inyección antes de liberar la sonda; falla explícitamente
+si no se puede perfilar. GDB requiere ptrace en el runner efímero; ningún otro
+escenario modifica esa configuración. Heaptrack puede alterar tiempos/uso y su
+inserción es inestable: este perfil no acredita rendimiento de producción.
+
+En la fase de línea compara tres pares de tabs/scroll por modo: baseline,
+sin transiciones, fuente del sistema, contención layout/paint, tabs ocultos y
+baseline final. Los estilos experimentales se retiran; no cambian producción.
+Los registros permiten localizar trabajo de índices, geometría/ResizeObserver,
+lecturas de layout y recovery. Presupuestos y protocolo de aceptación no cambian.
+
+Conserva resumen de callers/picos, timeline Massif y digest/tamaño del trace.
+El trace temporal se elimina con el perfil; no se capturan cuerpos de objetos.
+La captura empieza tras arrancar: no ve asignaciones previas ni todos los
+asignadores propios, y algunos símbolos pueden faltar. `Not freed` al terminar
+el proceso significa retención observada, no prueba de fuga. Ver
+[heaptrack](https://github.com/KDE/heaptrack#using-heaptrack).

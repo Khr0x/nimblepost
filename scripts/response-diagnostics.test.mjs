@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { parseAllocator, smapsCounters, diagnosticProtocol } from './response-diagnostics.mjs';
 import { summarizeResponses } from './response-report.mjs';
+import { smapsGroups, attachHeapProfile } from './response-heap-profile.mjs';
 
 const xml = `<np013 pid="42" monotonicNs="123456789000"/>
 <malloc version="1">
@@ -17,6 +18,16 @@ const xml = `<np013 pid="42" monotonicNs="123456789000"/>
 <system type="current" size="300"/>
 </malloc>
 `;
+
+test('Fine mapping profile separates anonymous, heap and library pages without payloads', async () => {
+  const groups=smapsGroups('1000-2000 rw-p 00000000 00:00 0\nSize: 4 kB\nRss: 3 kB\nPss: 2 kB\nAnonymous: 3 kB\n2000-3000 rw-p 00000000 00:00 0 [heap]\nSize: 4 kB\nRss: 4 kB\nPss: 4 kB\nAnonymous: 4 kB\n3000-4000 r-xp 00000000 00:01 123 /usr/lib/libexample.so\nSize: 4 kB\nRss: 4 kB\nPss: 1 kB\nAnonymous: 0 kB\n');
+  assert.equal(groups.length,3); assert.equal(groups[0].label,'[heap]');
+  assert.equal(groups.reduce((n,g)=>n+g.pssBytes,0),7*1024);
+  assert.equal(groups.find(g=>g.label==='anonymous').anonymousBytes,3*1024);
+  assert(!JSON.stringify(groups).includes('/usr/lib'));
+  assert.throws(()=>smapsGroups('invalid'));
+  await assert.rejects(()=>attachHeapProfile({name:'NimblePost'},'/tmp',4096,100),/Only the synthetic WebKit/);
+});
 
 test('Allocator footer counts all arenas once and rejects incomplete or inconsistent samples', () => {
   assert.deepEqual(parseAllocator(xml), { pid:42, monotonicMs:123456.789, arenas:2, arenaBytes:300, freeBytes:100, occupiedArenaBytes:200, mmapBytes:400 });

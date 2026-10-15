@@ -32,7 +32,14 @@ fn append_stage(stages: &mut Vec<serde_json::Value>, stage: serde_json::Value) -
 }
 
 pub fn plan() -> Option<serde_json::Value> {
-    PLAN.get().cloned().flatten()
+    PLAN.get().cloned().flatten().map(|mut plan| {
+        if plan["fineProfile"] == true {
+            plan["profileReady"] = serde_json::Value::Bool(
+                directory().is_ok_and(|path| path.join("heaptrack-ready").is_file()),
+            );
+        }
+        plan
+    })
 }
 
 pub struct Stage {

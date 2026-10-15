@@ -20,6 +20,7 @@ export interface MemoryControls {
   url: string;
   responses?: boolean;
   responseDiagnostics?: boolean;
+  fineProfile?: boolean;
   treeOnly?: boolean;
   responseOnly?: boolean;
   heapInspector?: boolean;

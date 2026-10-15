@@ -2,7 +2,7 @@
 import { emit } from '@tauri-apps/api/event';
 import { tick } from 'svelte';
 import type { MemoryControls } from './native-validation';
-import { stopProfiling } from './native-profile';
+import { stopProfiling, profileResponses, takeResponseStages } from './native-profile';
 import { api, traceNativeIpc } from './api';
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -13,6 +13,14 @@ const digest = async (text: string) => [...new Uint8Array(await crypto.subtle.di
 export async function validateResponses(controls: MemoryControls) {
   stopProfiling();
   if (controls.responseDiagnostics) traceNativeIpc();
+  if (controls.fineProfile) {
+    const deadline = performance.now() + 90000;
+    while (!(await api.workspace()).validationPlan?.profileReady) {
+      ensure(performance.now() < deadline, 'WebKit heap profiler did not become ready');
+      await delay(250);
+    }
+    profileResponses();
+  }
   const clearIpc = () => { for (const entry of performance.getEntriesByType('measure')) if (entry.name.startsWith('native-ipc:')) performance.clearMeasures(entry.name); };
   const send = async (url: string, raw = false) => {
     await controls.useEnvironment();
@@ -30,7 +38,7 @@ export async function validateResponses(controls: MemoryControls) {
     ensure(!state.error && !state.recoveryWarning, state.error || state.recoveryWarning);
     return state;
   };
-  const action = async (name: string, perform: () => Promise<void> | void, visible: () => boolean) => {
+  const measureAction = async (name: string, perform: () => Promise<void> | void, visible: () => boolean) => {
     clearIpc();
     const started = performance.now();
     await perform(); const handled = performance.now();
@@ -40,9 +48,11 @@ export async function validateResponses(controls: MemoryControls) {
     const visibleAt = performance.now();
     const ipc = controls.responseDiagnostics ? performance.getEntriesByType('measure').filter(entry => entry.name.startsWith('native-ipc:') && entry.startTime >= started)
       .map(entry => ({ name: entry.name.slice('native-ipc:'.length), startMs: entry.startTime - started, durationMs: entry.duration })) : undefined;
-    actions.push({ name, durationMs: visibleAt - started, handlerMs: handled - started, flushMs: flushed - handled, frameMs: visibleAt - flushed, ...(ipc ? { ipc } : {}) });
+    const result = { name, durationMs: visibleAt - started, handlerMs: handled - started, flushMs: flushed - handled, frameMs: visibleAt - flushed, ...(ipc ? { ipc } : {}) };
     clearIpc();
+    return result;
   };
+  const action = async (name: string, perform: () => Promise<void> | void, visible: () => boolean) => { actions.push(await measureAction(name, perform, visible)); };
   const phase = async (cycle: number, name: string, extra: Record<string, unknown> = {}, settle = true) => {
     await tick(); await frames();
     const controlsTiming = [];
@@ -58,7 +68,7 @@ export async function validateResponses(controls: MemoryControls) {
     const state = controls.inspect();
     ensure(!state.recoveryWarning, state.recoveryWarning);
     await emit('native-validation-responses', { index: index++, cycle, name, ...state, actions,
-      ...(controls.responseDiagnostics ? { diagnostics: { controls: controlsTiming, visibility: document.visibilityState, focused: document.hasFocus() } } : {}), ...extra });
+      ...(controls.responseDiagnostics ? { diagnostics: { controls: controlsTiming, visibility: document.visibilityState, focused: document.hasFocus(), ...(controls.fineProfile ? { frontend: takeResponseStages() } : {}) } } : {}), ...extra });
     actions = [];
     // Three seconds of settling, then six host samples 200 ms apart.
     if (settle) await delay(4500);
@@ -89,7 +99,7 @@ export async function validateResponses(controls: MemoryControls) {
     return viewport!;
   };
   await phase(0, 'baseline');
-  for (let cycle = 1; cycle <= 3; cycle++) {
+  for (let cycle = 1; cycle <= (controls.fineProfile ? 1 : 3); cycle++) {
     if (cycle > 1) await controls.reset(1);
     await controls.open('request-00000.yml');
     for (let request = 1; request < 64; request++) await controls.open(`request-${String(request).padStart(5, '0')}.yml`);
@@ -127,7 +137,35 @@ export async function validateResponses(controls: MemoryControls) {
     await action('tab-empty', () => controls.activate(tabs[0]), () => !document.querySelector('.response-panel') && controls.inspect().activeTab === tabs[0]);
     await action('tab-response', () => controls.activate(tabs.at(-1)!), () => !!document.querySelector('.response-panel') && controls.inspect().activeTab === tabs.at(-1));
     ensure(await digest(controls.body()) === lineHash, 'Tab switch changed the response');
-    await phase(cycle, 'line', { content: await content() });
+    const uiProfile = [];
+    if (controls.fineProfile) {
+      const priorStages = takeResponseStages();
+      uiProfile.push({ mode: 'regular-actions', frontend: priorStages });
+      const style = document.createElement('style'); document.head.append(style);
+      const modes = [
+        ['baseline', ''],
+        ['no-transitions', '.app-shell * { transition: none !important; animation: none !important; }'],
+        ['system-font', '.app-shell { font-family: system-ui, sans-serif !important; }'],
+        ['contained', '.response-text-viewport { contain: layout paint; }'],
+        ['hidden-tabs', '.request-tabs { display: none !important; }'],
+        ['baseline-after', ''],
+      ];
+      try {
+        for (const [mode, css] of modes) {
+          style.textContent = css; await tick(); await frames(); await delay(150);
+          for (let repeat = 0; repeat < 3; repeat++) {
+            takeResponseStages();
+            const empty = await measureAction('tab-empty', () => controls.activate(tabs[0]), () => !document.querySelector('.response-panel'));
+            const restored = await measureAction('tab-response', () => controls.activate(tabs.at(-1)!), () => !!document.querySelector('.response-panel'));
+            const view = inspectView();
+            const scroll = await measureAction('scroll', () => { view.scrollTop = view.scrollHeight; view.dispatchEvent(new Event('scroll')); }, () => !!document.querySelector(`[data-response-line="${Number(view.dataset.responseLines) - 1}"]`));
+            uiProfile.push({ mode, repeat, actions: [empty, restored, scroll], frontend: takeResponseStages() });
+          }
+        }
+      } finally { style.remove(); }
+      ensure(await digest(controls.body()) === lineHash, 'Profiling changed response content');
+    }
+    await phase(cycle, 'line', { content: await content(), ...(controls.fineProfile ? { uiProfile } : {}) });
     await copy(cycle, 'line');
     await send(`${controls.url}/excess`, true);
     ensure(/16777216/.test(controls.inspect().error) && !controls.inspect().bodyBytes && !controls.inspect().activeBodyChars, 'Excess must be explicit and retain no partial body');
@@ -152,6 +190,6 @@ export async function validateResponses(controls: MemoryControls) {
   if (controls.responseDiagnostics) {
     // Observe normal idle reclamation after loop-local DOM references leave scope.
     await delay(30000);
-    await phase(3, 'idle-reset');
+    await phase(controls.fineProfile ? 1 : 3, 'idle-reset');
   }
 }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { frontendStages, recordStage, stopProfiling } from '../../src/lib/desktop/native-profile.ts';
+import { frontendStages, recordStage, stopProfiling, profileResponses, takeResponseStages } from '../../src/lib/desktop/native-profile.ts';
 
 test('frontend profiling exports durations and counts without unrelated performance entries', () => {
   try {
@@ -22,4 +22,16 @@ test('frontend profiling exports durations and counts without unrelated performa
     performance.clearMeasures('nimblepost:tree-build');
     performance.clearMeasures('unrelated');
   }
+});
+
+test('Response timings remain bounded and drain between phases', () => {
+  stopProfiling(); profileResponses();
+  for (let i=0;i<100;i++) recordStage('layout',performance.now(),64);
+  for (let i=0;i<100;i++) recordStage(`other-${i}`,performance.now());
+  const batch=takeResponseStages();
+  assert.equal(batch.stages.length,32); assert.equal(batch.dropped,69);
+  const layout=batch.stages.find(s=>s.name==='layout');
+  assert.equal(layout.count,100); assert.equal(layout.items,6400); assert.equal(layout.samples.length,16);
+  assert(layout.totalMs>=layout.maxMs);
+  assert.deepEqual(takeResponseStages(),{stages:[],dropped:0});
 });

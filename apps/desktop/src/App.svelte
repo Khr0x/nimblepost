@@ -328,7 +328,9 @@
   let creationError = $state('');
   $effect(() => {
     if (!recoveryReady || recoveryBlocked || !workspace || loading || closingWindow) return;
+    const began = import.meta.env.VITE_NATIVE_VALIDATION === '1' ? performance.now() : 0;
     const snapshot = captureRecovery(workspace.activeWorkspaceId, requestTabs, activeRequestTab, draft, environment, home);
+    if (import.meta.env.VITE_NATIVE_VALIDATION === '1') recordStage('recovery-capture', began, requestTabs.length);
     const timer = setTimeout(() => { void persistRecovery(snapshot); }, 400);
     return () => clearTimeout(timer);
   });
@@ -840,6 +842,7 @@
           url: workspace.validationPlan.url,
           responses: workspace.validationPlan.responses,
           responseDiagnostics: workspace.validationPlan.responseDiagnostics,
+          fineProfile: workspace.validationPlan.fineProfile,
           treeOnly: workspace.validationPlan.treeOnly,
           responseOnly: workspace.validationPlan.responseOnly,
           heapInspector: workspace.validationPlan.heapInspector,

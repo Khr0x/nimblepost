@@ -1,5 +1,6 @@
 <script lang="ts">
   import { tick } from 'svelte';
+  import { recordStage } from '../../desktop/native-profile';
   import { Button } from '$lib/components/ui/button';
   import { ChevronLeft, ChevronRight, Plus, X } from '@lucide/svelte';
   import type { Draft } from './draft';
@@ -16,10 +17,12 @@
   let tabsCanScrollRight = $state(false);
   function updateTabNavigation() {
     if (!requestTabsList) return;
+    const began = import.meta.env.VITE_NATIVE_VALIDATION === '1' ? performance.now() : 0;
     const { scrollLeft, scrollWidth, clientWidth } = requestTabsList;
     tabsOverflow = scrollWidth > clientWidth + 1;
     tabsCanScrollLeft = scrollLeft > 1;
     tabsCanScrollRight = scrollLeft + clientWidth < scrollWidth - 1;
+    if (import.meta.env.VITE_NATIVE_VALIDATION === '1') recordStage('tabs-navigation-layout', began, tabs.length);
   }
   function observeRequestTabs(node: HTMLDivElement) {
     const observer = new ResizeObserver(updateTabNavigation);
@@ -40,11 +43,13 @@
       await tick(); // Account for the width occupied by newly visible chevrons.
       const tab = list.querySelector<HTMLElement>(`[data-tab-id="${id}"]`);
       if (!tab) return;
+      const began = import.meta.env.VITE_NATIVE_VALIDATION === '1' ? performance.now() : 0;
       const viewport = list.getBoundingClientRect();
       const rect = tab.getBoundingClientRect();
       if (rect.left < viewport.left) list.scrollLeft += rect.left - viewport.left;
       else if (rect.right > viewport.right) list.scrollLeft += rect.right - viewport.right;
       updateTabNavigation();
+      if (import.meta.env.VITE_NATIVE_VALIDATION === '1') recordStage('tabs-scroll-layout', began, tabs.length);
     })();
   });
 </script>

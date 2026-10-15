@@ -1,12 +1,15 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte';
+  import { recordStage } from '../../desktop/native-profile';
   import { hasManyLines, appendResponseLineIndex, responseLine, responseLineTops, responseLineAt, responseLineWindow, RESPONSE_LINE_HEIGHT } from './response-lines';
 
   let { text, wrap = true }: { text: string; wrap?: boolean } = $props();
   const virtual = $derived(hasManyLines(text));
   let indexCache: { text: string; starts: Uint32Array; segmented: boolean } = { text: '', starts: new Uint32Array(), segmented: false };
   const index = $derived.by(() => {
+    const began = import.meta.env.VITE_NATIVE_VALIDATION === '1' ? performance.now() : 0;
     indexCache = virtual ? appendResponseLineIndex(text, indexCache) : { text: '', starts: new Uint32Array(), segmented: false };
+    if (import.meta.env.VITE_NATIVE_VALIDATION === '1') recordStage('response-index', began, text.length);
     return indexCache;
   });
   const starts = $derived(index.starts);
@@ -14,7 +17,13 @@
   let height = $state(0), width = $state(0), scrollTop = $state(0);
   let measurements = $state(0);
   const heights = new Map<number, number>();
-  const tops = $derived.by(() => { measurements; return responseLineTops(starts.length, heights); });
+  const tops = $derived.by(() => {
+    measurements;
+    const began = import.meta.env.VITE_NATIVE_VALIDATION === '1' ? performance.now() : 0;
+    const value = responseLineTops(starts.length, heights);
+    if (import.meta.env.VITE_NATIVE_VALIDATION === '1') recordStage('response-tops', began, starts.length);
+    return value;
+  });
   const range = $derived(responseLineWindow(tops, Math.max(0, scrollTop - 16), height));
   const visible = $derived(Array.from({ length: range.end - range.start }, (_, index) => range.start + index));
   let previousText = '', previousWrap = true, previousWidth = 0, previousCount = 0;
@@ -44,7 +53,11 @@
   $effect(() => {
     if (!viewport) return;
     const element = viewport;
-    const measure = () => { height = element.clientHeight; width = element.clientWidth; };
+    const measure = () => {
+      const began = import.meta.env.VITE_NATIVE_VALIDATION === '1' ? performance.now() : 0;
+      height = element.clientHeight; width = element.clientWidth;
+      if (import.meta.env.VITE_NATIVE_VALIDATION === '1') recordStage('response-viewport-layout', began);
+    };
     const observer = new ResizeObserver(measure);
     observer.observe(element); measure();
     return () => observer.disconnect();
@@ -55,6 +68,7 @@
     const element = viewport;
     range; text; wrap; width;
     const observer = new ResizeObserver(entries => {
+      const began = import.meta.env.VITE_NATIVE_VALIDATION === '1' ? performance.now() : 0;
       const oldTops = tops;
       const anchor = responseLineAt(oldTops, Math.max(0, element.scrollTop - 16));
       const offset = element.scrollTop - oldTops[anchor];
@@ -74,6 +88,7 @@
           if (element.isConnected) { element.scrollTop = atEnd ? element.scrollHeight : target; scrollTop = element.scrollTop; }
         });
       }
+      if (import.meta.env.VITE_NATIVE_VALIDATION === '1') recordStage('response-rows-resize', began, entries.length);
     });
     element.querySelectorAll('[data-response-line]').forEach(row => observer.observe(row));
     return () => observer.disconnect();
