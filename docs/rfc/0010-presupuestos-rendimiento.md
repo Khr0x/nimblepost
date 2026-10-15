@@ -1,12 +1,16 @@
 # RFC-0010 — Presupuestos y aceptación de rendimiento
 
-Estado: contrato definido; herramientas de medición y comparación retiradas. Los
+Estado: contrato v1 conservado; tooling Linux v2 restablecido por NP-011. Los
 objetivos absolutos y las mediciones indicadas como pendientes no están certificados.
 Fecha: 2026-10-03.
 
-Este RFC conserva el protocolo como referencia de diseño e historial de las
-mediciones realizadas. CI comprueba los instaladores y el arranque nativo;
-actualmente no publica mediciones ni compara regresiones de rendimiento.
+Este RFC conserva v1 como referencia de diseño e historial. El
+[tooling NP-011](../native-performance.md) incorpora `startup-rss-linux-v2`:
+WebView efímero, fixtures versionados, familia por `/proc`, reportes y comparador.
+Su workflow publica dos series de autocomprobación del mismo binario; no las
+declara un gate de release ni acredita objetivos absolutos. No comparar esas
+series con reportes v1, macOS o Windows. Los adaptadores de estos dos SO y las
+mediciones de cold start/memoria física siguen pendientes.
 
 ## Propósito
 

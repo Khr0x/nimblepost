@@ -20,7 +20,7 @@ pub fn run() {
     let context = {
         let mut context = tauri::generate_context!();
         for window in &mut context.config_mut().app.windows {
-            window.incognito = cfg!(not(target_os = "macos"));
+            window.incognito = true;
             #[cfg(not(target_os = "macos"))]
             {
                 window.data_directory = Some(directory.join("webview"));
