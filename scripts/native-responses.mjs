@@ -1,6 +1,6 @@
 import { readFile, writeFile, mkdir, rename, mkdtemp, rm, readdir, stat, realpath } from 'node:fs/promises';
 import { spawn, execFileSync } from 'node:child_process';
-import { tmpdir, hostname, cpus, totalmem, release } from 'node:os';
+import { tmpdir, hostname, cpus, totalmem, release, loadavg } from 'node:os';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
@@ -10,6 +10,7 @@ import { family, fixtures, parseStat } from './native-performance.mjs';
 import { hash } from './performance-report.mjs';
 import { serveResponses } from './response-fixtures.mjs';
 import { responseProtocol, summarizeResponses, compareResponses } from './response-report.mjs';
+import { diagnosticProtocol, parseAllocator, smapsCounters } from './response-diagnostics.mjs';
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const command = (name, args) => execFileSync(name, args, { encoding: 'utf8', maxBuffer: 32 * 2 ** 20 }).trim();
@@ -37,7 +38,7 @@ async function collectionHash(directory) {
   const paths = (await files(directory)).sort();
   return hash((await Promise.all(paths.map(async p => `${p.slice(directory.length)}:${hash(await readFile(p))}`))).join('\n'));
 }
-export async function responseWorkspace(directory, url) {
+export async function responseWorkspace(directory, url, diagnostics = false) {
   await fixtures(directory, 100);
   const workspace = await json(join(directory, 'profile/workspaces.json'));
   workspace.workspaces.push({ id: 2, name: 'Empty validation workspace', collections: [], activeCollection: null });
@@ -51,17 +52,18 @@ export async function responseWorkspace(directory, url) {
   await save(join(directory, 'collection/environments/validation.yml'), { name: 'validation', variables: [{ name: 'np013-token', secret: true, type: 'string' }] });
   // Recovery refers to the original request; begin with clean tabs for this protocol.
   await save(join(directory, 'profile/recovery.json'), { version: 1, workspaceId: 1, activeTab: null, home: true, tabs: [] });
-  await save(join(directory, 'plan.json'), { responses: true, url });
+  await save(join(directory, 'plan.json'), { responses: true, url, ...(diagnostics ? { responseDiagnostics: true } : {}) });
 }
-async function runLaunch(binary, sha, server, iteration, checkpoint) {
+async function runLaunch(binary, sha, server, iteration, checkpoint, allocatorLibrary) {
   const directory = await mkdtemp(join(tmpdir(), 'nimblepost-responses-'));
   const pageSize = Number(command('getconf', ['PAGESIZE'])), hz = Number(command('getconf', ['CLK_TCK']));
   let child, known = [], startTicks, sampling, stopped = false, sampleError, stderr = '';
   const points = [], phases = [], trafficStart = server.traffic.length;
   try {
-    await responseWorkspace(directory, server.url);
+    await responseWorkspace(directory, server.url, !!allocatorLibrary);
     const before = await collectionHash(join(directory, 'collection'));
-    child = spawn(binary, [], { env: { ...process.env, NIMBLEPOST_VALIDATION_DIR: directory }, stdio: ['ignore', 'ignore', 'pipe'] });
+    child = spawn(binary, [], { env: { ...process.env, NIMBLEPOST_VALIDATION_DIR: directory,
+      ...(allocatorLibrary ? { LD_PRELOAD: allocatorLibrary, NP013_ALLOCATOR_DIAGNOSTIC_DIR: directory } : {}) }, stdio: ['ignore', 'ignore', 'pipe'] });
     child.stderr.on('data', data => { stderr = (stderr + data).slice(-8192); });
     let spawnError; child.on('error', error => { spawnError = error; });
     const deadline = performance.now() + 360000;
@@ -86,9 +88,9 @@ async function runLaunch(binary, sha, server, iteration, checkpoint) {
           assert(known.some(p => /WebKit/.test(p.name)), 'Missing WebKit helper');
           const processes = [];
           for (const p of known) {
-            const pssBytes = parsePss(await readFile(`/proc/${p.pid}/smaps_rollup`, 'utf8'));
+            const smaps = await readFile(`/proc/${p.pid}/smaps_rollup`, 'utf8'), pssBytes = parsePss(smaps);
             assert.equal(parseStat(await readFile(`/proc/${p.pid}/stat`, 'utf8'), pageSize, hz).startTicks, p.startTicks);
-            processes.push({ ...p, pssBytes });
+            processes.push({ ...p, pssBytes, ...(allocatorLibrary ? smapsCounters(smaps) : {}) });
           }
           points.push({ observed: performance.now(), previousMarkerIndex: phases.length - 1, rootPid: child.pid, pssBytes: processes.reduce((n, p) => n + p.pssBytes, 0), rssBytes: processes.reduce((n, p) => n + p.rssBytes, 0), processes });
         } catch (error) { if (!['ENOENT', 'ESRCH'].includes(error.code)) { sampleError = error; return; } }
@@ -122,6 +124,20 @@ async function runLaunch(binary, sha, server, iteration, checkpoint) {
           const point = points.find(p => p.observed >= target);
           phase.samples.push({ ...point, afterMarkerMs: point.observed - observed });
         }
+      }
+      if (allocatorLibrary && probe.payload.name !== 'copy') {
+        phase.allocatorSamples = [];
+        for (const proc of phase.samples.at(-1).processes) {
+          let xml;
+          try { xml = await readFile(join(directory, `allocator-${proc.pid}.xml`), 'utf8'); }
+          catch (error) { if (error.code === 'ENOENT' && proc.pid !== child.pid) continue; throw error; }
+          const allocator = parseAllocator(xml), ageMs = Number(process.hrtime.bigint() / 1000n) / 1000 - allocator.monotonicMs;
+          assert.equal(allocator.pid, proc.pid); assert(ageMs >= 0 && ageMs < 5000, 'Stale allocator sample');
+          assert.equal(parseStat(await readFile(`/proc/${proc.pid}/stat`, 'utf8'), pageSize, hz).startTicks, proc.startTicks);
+          phase.allocatorSamples.push({ ...allocator, startTicks: proc.startTicks, ageMs, xml });
+        }
+        assert(phase.allocatorSamples.some(sample => sample.pid === child.pid), 'Missing root allocator sample');
+        phase.host = { loadAverage: loadavg(), cpuPressure: await readFile('/proc/pressure/cpu', 'utf8') };
       }
       await checkpoint(phases, ready);
     }
@@ -171,18 +187,22 @@ export async function main(args) {
   assert.equal(source.dirty, false, 'Commit measured sources first');
   const bytes = await readFile(binary); assert(bytes.includes(Buffer.from('native-validation requires NIMBLEPOST_VALIDATION_DIR')));
   assert.equal(process.arch, 'x64', 'NP-013 acceptance currently supports Linux x64');
+  assert(!process.env.LD_PRELOAD && !process.env.NP013_ALLOCATOR_DIAGNOSTIC_DIR, 'Do not contaminate acceptance with a preload');
+  const allocatorLibrary = options['allocator-library'] ? await realpath(options['allocator-library']) : null;
+  if (allocatorLibrary) assert.equal(launchCount, 1, 'Allocator diagnostics are not acceptance series');
   const server = await serveResponses();
-  const report = { schemaVersion: 1, protocol: responseProtocol, seriesId: randomUUID(), status: 'running', source, launchCount, launches: [],
+  const report = { schemaVersion: 1, protocol: allocatorLibrary ? diagnosticProtocol : responseProtocol, seriesId: randomUUID(), status: 'running', source, launchCount, launches: [],
     mode: 'instrumented-release-ephemeral', absoluteTargetsEvaluated: false,
     binary: { sha256: hash(bytes), bytes: (await stat(binary)).size }, fixtures: server.fixtures,
     environment: { platform: process.platform, arch: process.arch, hostHash: hash(hostname()), cpu: cpus()[0].model, cpuCount: cpus().length,
-      ramBytes: totalmem(), osRelease: release(), webview: command('dpkg-query', ['-W', '-f=${Version}', 'libwebkit2gtk-4.1-0']), conditions: options.conditions } };
+      ramBytes: totalmem(), osRelease: release(), webview: command('dpkg-query', ['-W', '-f=${Version}', 'libwebkit2gtk-4.1-0']), conditions: options.conditions },
+    ...(allocatorLibrary ? { diagnostics: { allocatorLibrarySha256: hash(await readFile(allocatorLibrary)), libc: command('getconf', ['GNU_LIBC_VERSION']), intervalMs: 1000, acceptanceEligible: false } } : {}) };
   await mkdir(resolve(output, '..'), { recursive: true }); await save(output, report);
   try {
     for (let iteration = 1; iteration <= launchCount; iteration++) {
       report.launches.push(await runLaunch(binary, source.sha, server, iteration, async (phases, ready) => {
         report.partialLaunch = { iteration, ready, phases }; await save(output, report);
-      }));
+      }, allocatorLibrary));
       delete report.partialLaunch; await save(output, report);
       console.log(`responses launch=${iteration}/${launchCount}`);
     }

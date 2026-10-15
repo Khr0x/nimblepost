@@ -1,8 +1,18 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke as tauriInvoke } from '@tauri-apps/api/core';
 import type { RecoverySnapshot, RecoveryView } from '../features/requests/recovery';
 
+let traceIpc = false;
+export function traceNativeIpc() { traceIpc = true; }
+const invoke = import.meta.env.VITE_NATIVE_VALIDATION === '1'
+  ? async <T>(command: string, args?: Record<string, unknown>): Promise<T> => {
+    if (!traceIpc) return tauriInvoke<T>(command, args);
+    const start = performance.now();
+    try { return await tauriInvoke<T>(command, args); }
+    finally { performance.measure(`native-ipc:${command}`, { start, end: performance.now() }); }
+  } : tauriInvoke;
+
 export interface Collection { name: string; root: string; requests: string[]; folders: string[]; environments: string[]; readOnly: boolean; warning?: string | null }
-export interface WorkspaceView { workspaces: { id: number; name: string }[]; activeWorkspaceId: number; collections: Collection[]; activeCollection: string | null; warning: string | null; watchWarning?: string | null; validationPlan?: { url: string; responses?: boolean; treeOnly?: boolean; responseOnly?: boolean; heapInspector?: boolean; hideResponseView?: boolean } | null }
+export interface WorkspaceView { workspaces: { id: number; name: string }[]; activeWorkspaceId: number; collections: Collection[]; activeCollection: string | null; warning: string | null; watchWarning?: string | null; validationPlan?: { url: string; responses?: boolean; responseDiagnostics?: boolean; treeOnly?: boolean; responseOnly?: boolean; heapInspector?: boolean; hideResponseView?: boolean } | null }
 export interface CollectionChange { roots: string[]; warning: string | null }
 export interface RequestInspection { request: RequestInfo; changed: boolean | null }
 export interface FieldEdit { path: string[]; value: unknown }

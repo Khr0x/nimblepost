@@ -839,6 +839,7 @@
         }, renderStarted, workspace?.validationPlan ? {
           url: workspace.validationPlan.url,
           responses: workspace.validationPlan.responses,
+          responseDiagnostics: workspace.validationPlan.responseDiagnostics,
           treeOnly: workspace.validationPlan.treeOnly,
           responseOnly: workspace.validationPlan.responseOnly,
           heapInspector: workspace.validationPlan.heapInspector,

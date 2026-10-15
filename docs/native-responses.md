@@ -97,3 +97,30 @@ Una comparación passed del mismo binario es validación acotada del protocolo/c
 no una mejora de rendimiento entre versiones.
 
 La aceptación y los resultados observados se mantienen en Obsidian, task NP-013.
+
+## Diagnosticar memoria y latencia
+
+El escenario manual `response-diagnostics` fuerza un solo lanzamiento y utiliza
+`responses-linux-diagnostic-v1`. Conserva los fixtures y las comprobaciones de
+integridad, copia, cancelación y privacidad. Nunca genera aceptación ni puede
+compararse como referencia. No se restan sus controles a los tiempos observados.
+
+Por fase añade cinco controles sin acción: timer, dos frames y lectura IPC de
+recovery; visibilidad/foco y presión CPU del host. Por acción conserva spans IPC
+(comando, inicio y duración; sin argumentos), además de handler/flush/frames.
+Los comandos concurrentes pueden solaparse: sus duraciones no se suman como CPU.
+
+Compila aparte `scripts/response-allocator.c`, sin incluirlo en el paquete. Un
+preload habilitado solo para la familia NimblePost/WebKit del perfil temporal
+consulta `malloc_info` cada segundo y exporta XML de contadores. El host conserva
+XML, PID/starttime, edad de muestra y tamaños de arenas/libres/mmap por fase,
+además de PSS, anónima y CPU. Si falta el contador del proceso principal falla;
+los helpers que no hereden el preload quedan sin contador, explícitamente.
+
+`system-current - free` estima ocupación de arenas: incluye metadatos/tcache y
+no identifica objetos vivos. mmap de glibc se registra aparte; asignadores
+propios y mapeos directos de WebKit pueden quedar fuera. PSS y tamaños de arenas
+no son equivalentes. El preload añade un hilo y carga; no demuestra ausencia de
+fugas ni acredita rendimiento de producción. No fuerza GC, trim ni modifica
+límites del asignador. Véase [malloc_info](https://man7.org/linux/man-pages/man3/malloc_info.3.html)
+y las limitaciones de [mallinfo](https://man7.org/linux/man-pages/man3/mallinfo.3.html).

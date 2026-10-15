@@ -19,6 +19,7 @@ const profile = () => ({ frontendStages: frontendStages(),
 export interface MemoryControls {
   url: string;
   responses?: boolean;
+  responseDiagnostics?: boolean;
   treeOnly?: boolean;
   responseOnly?: boolean;
   heapInspector?: boolean;

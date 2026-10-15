@@ -3,6 +3,7 @@ import { emit } from '@tauri-apps/api/event';
 import { tick } from 'svelte';
 import type { MemoryControls } from './native-validation';
 import { stopProfiling } from './native-profile';
+import { api, traceNativeIpc } from './api';
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const frames = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
@@ -11,13 +12,15 @@ const digest = async (text: string) => [...new Uint8Array(await crypto.subtle.di
 
 export async function validateResponses(controls: MemoryControls) {
   stopProfiling();
+  if (controls.responseDiagnostics) traceNativeIpc();
+  const clearIpc = () => { for (const entry of performance.getEntriesByType('measure')) if (entry.name.startsWith('native-ipc:')) performance.clearMeasures(entry.name); };
   const send = async (url: string, raw = false) => {
     await controls.useEnvironment();
     controls.provideSecret('np013-token', 'NP013_RUNTIME_SECRET_CANARY');
     return raw ? controls.sendRaw(url) : controls.send(url);
   };
   let index = 0;
-  let actions: { name: string; durationMs: number; handlerMs: number; flushMs: number; frameMs: number }[] = [];
+  let actions: { name: string; durationMs: number; handlerMs: number; flushMs: number; frameMs: number; ipc?: { name: string; startMs: number; durationMs: number }[] }[] = [];
   const wait = async (condition: () => boolean, message: string) => {
     const deadline = performance.now() + 15000;
     while (!condition()) { ensure(performance.now() < deadline, message); await delay(10); }
@@ -28,19 +31,34 @@ export async function validateResponses(controls: MemoryControls) {
     return state;
   };
   const action = async (name: string, perform: () => Promise<void> | void, visible: () => boolean) => {
+    clearIpc();
     const started = performance.now();
     await perform(); const handled = performance.now();
     await tick(); const flushed = performance.now();
     await frames();
     ensure(visible(), `Action did not become visible: ${name}`);
     const visibleAt = performance.now();
-    actions.push({ name, durationMs: visibleAt - started, handlerMs: handled - started, flushMs: flushed - handled, frameMs: visibleAt - flushed });
+    const ipc = controls.responseDiagnostics ? performance.getEntriesByType('measure').filter(entry => entry.name.startsWith('native-ipc:') && entry.startTime >= started)
+      .map(entry => ({ name: entry.name.slice('native-ipc:'.length), startMs: entry.startTime - started, durationMs: entry.duration })) : undefined;
+    actions.push({ name, durationMs: visibleAt - started, handlerMs: handled - started, flushMs: flushed - handled, frameMs: visibleAt - flushed, ...(ipc ? { ipc } : {}) });
+    clearIpc();
   };
   const phase = async (cycle: number, name: string, extra: Record<string, unknown> = {}, settle = true) => {
     await tick(); await frames();
+    const controlsTiming = [];
+    if (controls.responseDiagnostics) {
+      for (let i = 0; i < 5; i++) {
+        let start = performance.now(); await delay(0); const timerMs = performance.now() - start;
+        start = performance.now(); await frames(); const framesMs = performance.now() - start;
+        start = performance.now(); await api.recovery(); const readRecoveryMs = performance.now() - start;
+        controlsTiming.push({ timerMs, framesMs, readRecoveryMs });
+      }
+    }
+    clearIpc();
     const state = controls.inspect();
     ensure(!state.recoveryWarning, state.recoveryWarning);
-    await emit('native-validation-responses', { index: index++, cycle, name, ...state, actions, ...extra });
+    await emit('native-validation-responses', { index: index++, cycle, name, ...state, actions,
+      ...(controls.responseDiagnostics ? { diagnostics: { controls: controlsTiming, visibility: document.visibilityState, focused: document.hasFocus() } } : {}), ...extra });
     actions = [];
     // Three seconds of settling, then six host samples 200 ms apart.
     if (settle) await delay(4500);
