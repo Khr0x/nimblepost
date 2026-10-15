@@ -37,6 +37,11 @@ El runner exige fuentes tracked limpias y SHA compilado coincidente. No modifica
 HOME ni usa perfiles/colecciones reales. El display Xvfb es desechable; la prueba
 reemplaza su clipboard con contenido sintético.
 
+El receptor reserva Content-Length solo tras validar el límite, y mantiene también
+la capacidad de crecimiento chunked dentro de 16 MiB. Los nuevos reportes incluyen
+`backendMemory.responseCapacity`, además de bytes usados; el comparador comprueba
+ese presupuesto cuando el campo está presente. Al cerrar/reset ambos son cero.
+
 ## Carga y fronteras
 
 `responses-linux-v1`: cinco lanzamientos por serie, tres ciclos por lanzamiento.

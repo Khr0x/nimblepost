@@ -1205,6 +1205,7 @@ impl Session {
         let inner = self.inner.lock().unwrap();
         serde_json::json!({
             "responseBytes": inner.response.as_ref().map_or(0, |(_, response)| response.body.len()),
+            "responseCapacity": inner.response.as_ref().map_or(0, |(_, response)| response.body.capacity()),
             "snapshots": inner.snapshots.len(),
             "activeRequest": inner.active.is_some(),
         })

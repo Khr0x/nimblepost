@@ -73,6 +73,7 @@ test('Complete reports recompute summaries; clipboard, release and HTTP checks a
     r => r.launches[0].phases[2].probe.payload.content={bytes:1,sha256:'wrong'},
     r => r.launches[0].phases[3].clipboardSha256='wrong',
     r => r.launches[0].phases[8].probe.backendMemory.responseBytes=1,
+    r => r.launches[0].phases[2].probe.backendMemory.responseCapacity=32*MiB,
     r => r.launches[0].phases[9].probe.backendMemory.snapshots=1,
     r => r.launches[0].phases[9].probe.payload.cachedBodyChars=1,
     r => r.launches[0].traffic[0].finished=true, r => r.launches[0].traffic[1].bytesWritten=16*MiB,

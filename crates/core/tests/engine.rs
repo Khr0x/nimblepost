@@ -435,6 +435,42 @@ async fn oversized_and_truncated_bodies_are_errors() {
 }
 
 #[tokio::test]
+async fn large_binary_receive_buffers_stay_within_the_body_limit() {
+    let limit = 16 * 1024 * 1024;
+    let payload = vec![0xfc; limit - 13];
+    for chunked in [false, true] {
+        let mut wire = if chunked {
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n".to_vec()
+        } else {
+            format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n",
+                payload.len()
+            )
+            .into_bytes()
+        };
+        if chunked {
+            for chunk in payload.chunks(63 * 1024 + 13) {
+                wire.extend_from_slice(format!("{:x}\r\n", chunk.len()).as_bytes());
+                wire.extend_from_slice(chunk);
+                wire.extend_from_slice(b"\r\n");
+            }
+            wire.extend_from_slice(b"0\r\n\r\n");
+        } else {
+            wire.extend_from_slice(&payload);
+        }
+        let mock = server(&wire, Stall::None).await;
+        let response = run(&basic_yaml("settings: {timeout: 10000}"), &mock.url)
+            .await
+            .unwrap();
+        assert_eq!(response.body, payload);
+        assert!(
+            response.body.capacity() <= limit,
+            "Receive capacity exceeded the body budget"
+        );
+    }
+}
+
+#[tokio::test]
 async fn cross_origin_redirect_returns_3xx_without_sending_credentials_to_target() {
     let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let destination = format!("http://{}/target", target.local_addr().unwrap());

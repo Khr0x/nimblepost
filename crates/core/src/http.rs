@@ -442,12 +442,22 @@ async fn send(prepared: PreparedRequest) -> Result<HttpResponse> {
     }
     // ponytail: bounded in-memory response for the initial engine; add file-backed
     // streaming before supporting bodies larger than 16 MiB or sending them over IPC.
-    let mut body = Vec::new();
+    let mut body = Vec::with_capacity(response.content_length().unwrap_or(0) as usize);
     while let Some(chunk) = response.chunk().await.map_err(network_error)? {
         if chunk.len() > MAX_RESPONSE_BYTES - body.len() {
             return Err(Error::BodyTooLarge {
                 limit: MAX_RESPONSE_BYTES,
             });
+        }
+        let required = body.len() + chunk.len();
+        if required > body.capacity() {
+            // Vec's automatic doubling may otherwise reserve beyond the body limit.
+            let capacity = body
+                .capacity()
+                .saturating_mul(2)
+                .max(required)
+                .min(MAX_RESPONSE_BYTES);
+            body.reserve_exact(capacity - body.len());
         }
         body.extend_from_slice(&chunk);
     }

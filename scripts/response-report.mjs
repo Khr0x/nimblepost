@@ -45,6 +45,11 @@ export function summarizeResponses(report) {
       assert.equal(p.index, index); assert.equal(probe.buildSha, report.source.sha);
       assert.equal(probe.debugAssertions, false); assert.equal(probe.inspector, false);
       assert.equal(p.recoveryWarning, '');
+      if (probe.backendMemory.responseCapacity !== undefined) {
+        const capacity = probe.backendMemory.responseCapacity;
+        assert(Number.isInteger(capacity) && capacity >= probe.backendMemory.responseBytes && capacity <= 16 * MiB, 'Receive capacity exceeded the body budget');
+        if (p.name === 'closed' || p.name === 'reset') assert.equal(capacity, 0);
+      }
       if (index) { assert.equal(p.cycle, Math.floor((index - 1) / responsePhases.length) + 1); assert.equal(p.name, responsePhases[(index - 1) % responsePhases.length]); }
       for (const action of p.actions) {
         assert(numeric(action.durationMs) && action.durationMs > 0);
