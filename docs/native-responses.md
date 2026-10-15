@@ -9,7 +9,7 @@ NP-012. El workflow es exclusivamente manual.
 
 En **Actions → Native performance tooling → Run workflow**, seleccionar la rama,
 `scenario: responses` y `launches: 5`. Se construye/instala Debian instrumentado y
-se ejecutan referencia y candidata en el mismo host. `launches: 1` es diagnóstico:
+se ejecutan referencia y candidata en el mismo host. `launches: 1` ejecuta una sola serie diagnóstica:
 no genera aceptación ni comparación. Conservar SHA resuelto, logs y artefactos.
 
 Para ejecución local con requisitos Tauri, Xvfb, dbus, xclip y xdotool:
@@ -54,7 +54,7 @@ se muestran en segmentos visuales acotados y Copy conserva el original.
 La sonda mide desde invocar la acción de UI hasta el estado esperado y dos frames
 para carga de fragmento, scroll, wrap, cambio de tab y cancelación. Esto describe
 latencia de la acción instrumentada, no de un dispositivo físico ni final del
-pintado GPU. Presupuesto operativo fijado antes de medir: p95 local ≤100 ms y
+pintado GPU. Presupuesto operativo fijado antes de medir: p95 por tipo de acción local ≤100 ms y
 máximo ≤250 ms; cancelación durante transferencia ≤1000 ms. Los fallos se conservan.
 
 Al cerrar: cero cuerpos frontend/backend. Al cambiar a workspace vacío: cero

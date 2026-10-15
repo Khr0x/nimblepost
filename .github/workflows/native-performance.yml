@@ -57,7 +57,7 @@ jobs:
           node --input-type=module -e '
             import { readdirSync, readFileSync } from "node:fs";
             for (const file of readdirSync("apps/desktop/dist", { recursive: true }).filter(f => f.endsWith(".js"))) {
-              if (/native-validation-ready|native-validation-smoke|native-validation-responses|NP013_RUNTIME_SECRET_CANARY/.test(readFileSync(`apps/desktop/dist/${file}`, "utf8"))) throw new Error("Ordinary frontend contains validation probes");
+              if (/native-validation-ready|native-validation-smoke|native-validation-responses|NP013_RUNTIME_SECRET/.test(readFileSync(`apps/desktop/dist/${file}`, "utf8"))) throw new Error("Ordinary frontend contains validation probes");
             }
           '
       - name: Build and install instrumented package (never publish this installer)
@@ -75,7 +75,9 @@ jobs:
             responses) runner=scripts/native-responses.mjs ;;
             *) exit 1 ;;
           esac
-          for series in reference candidate; do
+          series_names='reference candidate'
+          if [ "$SCENARIO" = responses ] && [ "$LAUNCHES" = 1 ]; then series_names=diagnostic; fi
+          for series in $series_names; do
             result=0
             dbus-run-session -- xvfb-run -a node "$runner" run \
               --binary /usr/bin/NimblePost --launches "$LAUNCHES" \

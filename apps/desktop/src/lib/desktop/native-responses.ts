@@ -56,7 +56,7 @@ export async function validateResponses(controls: MemoryControls) {
     ensure(button && !button.disabled, 'Complete response cannot be copied');
     const rect = button!.getBoundingClientRect();
     // The Linux host injects a real X11 click and independently reads the clipboard.
-    await phase(cycle, 'copy', { kind, content: await content(), point: { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, innerHeight: window.innerHeight } }, false);
+    await phase(cycle, 'copy', { kind, content: await content(), point: { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, innerHeight: window.innerHeight, innerWidth: window.innerWidth } }, false);
     await wait(() => document.querySelector('.response-panel [role="status"]')?.textContent === 'Response copied.', 'Real clipboard action did not finish');
     await delay(1000);
   };

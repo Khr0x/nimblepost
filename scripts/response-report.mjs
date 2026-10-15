@@ -30,7 +30,7 @@ export function summarizeResponses(report) {
   assert.equal(report.environment.platform, 'linux'); assert.equal(report.environment.arch, 'x64');
   assert.deepEqual(report.fixtures, fixtureIdentity(responseFixtures()), 'Unknown fixture recipe');
   assert(report.launches.length >= 5 && report.launches.length === report.launchCount, 'Five complete launches required');
-  const interactions = [], cancellations = [], deltas = [], resets = [];
+  const interactions = [], cancellations = [], deltas = [], resets = [], byAction = {};
   for (const [i, launch] of report.launches.entries()) {
     assert.equal(launch.iteration, i + 1); assert.equal(launch.smoke.payload.error, '');
     assert(launch.smoke.payload.checks.includes('large-responses'));
@@ -48,6 +48,7 @@ export function summarizeResponses(report) {
       for (const action of p.actions) {
         assert(numeric(action.durationMs) && action.durationMs > 0);
         actionNames.push(action.name);
+        (byAction[action.name] ??= []).push(action.durationMs);
         (action.name === 'cancel' ? cancellations : interactions).push(action.durationMs);
       }
       if (p.name === 'copy') {
@@ -98,9 +99,10 @@ export function summarizeResponses(report) {
   }
   const local = stats(interactions), cancel = stats(cancellations);
   const failures = [];
-  if (local.p95 > 100 || local.max > 250) failures.push('local-action-budget');
+  const actionMs = Object.fromEntries(Object.entries(byAction).map(([name, values]) => [name, stats(values)]));
+  for (const [name, value] of Object.entries(actionMs)) if (name !== 'cancel' && (value.p95 > 100 || value.max > 250)) failures.push(`${name}-budget`);
   if (cancel.max > 1000) failures.push('cancel-budget');
-  return { localActionMs: local, cancelMs: cancel, resetPssBytes: stats(resets), cycleGrowthBytes: signedStats(deltas), budgetStatus: failures.length ? 'failed' : 'passed', failures };
+  return { localActionMs: local, actionMs, cancelMs: cancel, resetPssBytes: stats(resets), cycleGrowthBytes: signedStats(deltas), budgetStatus: failures.length ? 'failed' : 'passed', failures };
 }
 
 export function compareResponses(reference, candidate) {

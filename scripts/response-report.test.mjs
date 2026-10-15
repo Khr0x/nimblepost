@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { responseFixtures, fixtureIdentity, serveResponses } from './response-fixtures.mjs';
 import { responseProtocol, responsePhases, summarizeResponses, compareResponses } from './response-report.mjs';
-import { parsePss, responseWorkspace } from './native-responses.mjs';
+import { parsePss, responseWorkspace, copyWindow } from './native-responses.mjs';
 import { hash } from './performance-report.mjs';
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -44,6 +44,8 @@ test('Large fixtures are exact UTF-8 payloads, valid JSON and an unbroken Unicod
   assert.equal(identity.json.sha256, hash(payloads.json));
   assert.equal(parsePss('Rss: 4096 kB\nPss:                2048 kB\n'), 2 * MiB);
   assert.throws(() => parsePss('Pss_Dirty: 100 kB'));
+  assert.equal(copyWindow([{window:'main',width:1180,height:800},{window:'child',width:1,height:1}],{innerWidth:1180,innerHeight:765}).window,'main');
+  assert.throws(()=>copyWindow([{window:'child',width:1,height:1}],{innerWidth:1180,innerHeight:765}));
 });
 
 test('HTTP fixtures serve real chunked excess and a transfer can be aborted', async () => {
@@ -89,6 +91,9 @@ test('Operational interaction and memory budgets cannot be hidden by a compariso
   const incompatible=report('other');incompatible.environment.webview='other'; assert.throws(()=>compareResponses(reference,incompatible));
   const leak=report('leak'); for(const sample of leak.launches[0].phases.at(-1).samples) { sample.pssBytes+=20*MiB; sample.processes[0].pssBytes+=20*MiB; }
   assert.throws(()=>summarizeResponses(leak),/stabilize/);
+  const slowTab=report('slow-tab'); slowTab.launches[0].phases[4].probe.payload.actions.find(a=>a.name==='tab-response').durationMs=101;
+  assert.equal(summarizeResponses(slowTab).localActionMs.p95,40);
+  assert(summarizeResponses(slowTab).failures.includes('tab-response-budget'));
 });
 
 test('Native response collection and secret environment conform to the pinned schema', async () => {

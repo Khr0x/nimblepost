@@ -20,6 +20,11 @@ export function parsePss(text) {
   const match = /^Pss:\s+(\d+) kB$/m.exec(text);
   assert(match, 'PSS unavailable'); return Number(match[1]) * 1024;
 }
+export function copyWindow(candidates, viewport) {
+  const matches = candidates.filter(c => c.width >= viewport.innerWidth && c.height >= viewport.innerHeight);
+  assert(matches.length, `No application-sized X11 window: ${JSON.stringify({ candidates, viewport })}`);
+  return matches.sort((a, b) => b.width * b.height - a.width * a.height)[0];
+}
 async function files(directory) {
   const result = [];
   for (const entry of await readdir(directory, { withFileTypes: true })) {
@@ -97,9 +102,12 @@ async function runLaunch(binary, sha, server, iteration) {
         const point = probe.payload.point;
         const windows = command('xdotool', ['search', '--onlyvisible', '--pid', String(child.pid)]).split('\n');
         assert(windows.length, 'No native copy target');
-        const window = windows.at(-1);
-        const geometry = command('xdotool', ['getwindowgeometry', '--shell', window]);
-        const height = Number(/^HEIGHT=(\d+)$/m.exec(geometry)?.[1]); assert(height >= point.innerHeight);
+        const candidates = windows.map(window => {
+          const geometry = command('xdotool', ['getwindowgeometry', '--shell', window]);
+          return { window, width: Number(/^WIDTH=(\d+)$/m.exec(geometry)?.[1]), height: Number(/^HEIGHT=(\d+)$/m.exec(geometry)?.[1]) };
+        });
+        // GTK also exposes a tiny child window; it is not the WebView click target.
+        const { window, height } = copyWindow(candidates, point);
         command('xdotool', ['windowfocus', '--sync', window]);
         command('xdotool', ['mousemove', '--window', window, String(Math.round(point.x)), String(Math.round(point.y + height - point.innerHeight)), 'click', '1']);
         // Do not retain clipboard payloads. Hash the real X11 selection, including trailing bytes.
