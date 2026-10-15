@@ -89,7 +89,7 @@ export function compareReports(reference, candidate, confirmation = null, toolin
   const reaches = (value, threshold) => value >= threshold - 1e-9;
   const status = variations.some(v => reaches(v.percent, 15) && v.confirmationPercent !== null && reaches(v.confirmationPercent, 15)) ? 'blocked'
     : variations.some(v => reaches(v.percent, 15)) && !confirmation ? 'needs-confirmation'
-    : variations.some(v => reaches(v.percent, 10)) ? 'warning' : 'passed';
+    : variations.some(v => reaches(v.percent, 10) || (v.confirmationPercent !== null && reaches(v.confirmationPercent, 10))) ? 'warning' : 'passed';
   return { schemaVersion: 1, protocol, status, referenceSeries: reference.seriesId, candidateSeries: candidate.seriesId,
     confirmationSeries: confirmation?.seriesId ?? null, toolingCheck, absoluteTargetsEvaluated: false,
     releaseGateEvaluated: !toolingCheck, variations, referenceSummary: base, candidateSummary: next };

@@ -71,6 +71,8 @@ async function launch(binary, directory, count, sha) {
   try {
     const ready = await marker('ready'), profile = await marker('profile');
     assert.equal(ready.data.buildSha, sha, 'Binary was built from a different/unrecorded source revision');
+    assert.equal(ready.data.debugAssertions, false, 'Debug builds cannot be benchmarked as release');
+    assert.equal(ready.data.inspector, false, 'Inspector builds cannot be used for acceptance');
     const p = ready.data.payload, tree = profile.data.payload;
     assert.equal(p.error, ''); assert.equal(p.rendered, true); assert.equal(p.requests, count); assert.equal(p.tabs, count ? 1 : 0);
     if (count) { assert.equal(p.url, 'http://127.0.0.1:3000/users?draft=1'); assert.equal(p.urlEnabled, true); assert.equal(p.untitled, false); }

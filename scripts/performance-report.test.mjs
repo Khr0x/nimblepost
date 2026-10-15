@@ -59,6 +59,7 @@ test('inclusive 10/15 percent thresholds and independent confirmations follow RF
   assert.equal(compareReports(base, report(115)).status, 'needs-confirmation');
   assert.equal(compareReports(base, report(115), report(115)).status, 'blocked');
   assert.equal(compareReports(base, report(115), report(114)).status, 'warning');
+  assert.equal(compareReports(base, report(100), report(115)).status, 'warning', 'A divergent repetition must not be hidden');
   assert.equal(compareReports(base, report(100, 1150), report(100, 1150)).status, 'blocked');
   const candidate = report(115), confirmation = report(115);
   confirmation.binary.sha256 = 'd'.repeat(64); assert.throws(() => compareReports(base, candidate, confirmation));
