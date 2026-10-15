@@ -337,3 +337,7 @@ Debian. CI tiene runners Windows 2025/Ubuntu 24.04 x64 para compilar, instalar y
 abrir paquetes y ejecutar las pruebas Rust. Los resultados de estos runners x64
 siguen pendientes hasta ejecutar los jobs del commit correspondiente. Los artefactos de CI no cambian
 el canal de releases públicas, actualmente macOS ALPHA.
+
+La [guía de aceptación Windows/Linux x64](../../docs/native-validation.md) separa
+los checks automáticos de instalación/arranque/desinstalación del smoke
+interactivo pendiente y describe la evidencia necesaria para cerrar NP-010.
