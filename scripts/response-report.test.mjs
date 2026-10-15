@@ -2,8 +2,14 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { responseFixtures, fixtureIdentity, serveResponses } from './response-fixtures.mjs';
 import { responseProtocol, responsePhases, summarizeResponses, compareResponses } from './response-report.mjs';
-import { parsePss } from './native-responses.mjs';
+import { parsePss, responseWorkspace } from './native-responses.mjs';
 import { hash } from './performance-report.mjs';
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import Ajv from 'ajv';
+import { parse } from 'yaml';
 const MiB = 2 ** 20;
 const payloads = responseFixtures(), identity = fixtureIdentity(payloads);
 function report(id = 'reference') {
@@ -83,4 +89,34 @@ test('Operational interaction and memory budgets cannot be hidden by a compariso
   const incompatible=report('other');incompatible.environment.webview='other'; assert.throws(()=>compareResponses(reference,incompatible));
   const leak=report('leak'); for(const sample of leak.launches[0].phases.at(-1).samples) { sample.pssBytes+=20*MiB; sample.processes[0].pssBytes+=20*MiB; }
   assert.throws(()=>summarizeResponses(leak),/stabilize/);
+});
+
+test('Native response collection and secret environment conform to the pinned schema', async () => {
+  const directory=mkdtempSync(join(tmpdir(),'np013-fixture-test-'));
+  try {
+    await responseWorkspace(directory,'http://127.0.0.1:3000');
+    const schema=JSON.parse(readFileSync(new URL('../schemas/opencollection/1.0.0/opencollection.schema.json',import.meta.url)));
+    const ajv=new Ajv({strict:false});ajv.addSchema(schema);
+    for(const [file,definition] of [['request-00000.yml','HttpRequest'],['environments/validation.yml','Environment'],['opencollection.yml',null]]) {
+      const validate=ajv.getSchema(definition?`${schema.$id}#/$defs/${definition}`:schema.$id);
+      assert(validate,definition);const document=parse(readFileSync(join(directory,'collection',file),'utf8'));
+      assert(validate(document),JSON.stringify(validate.errors));
+      assert(!JSON.stringify(document).includes('NP013_RUNTIME_SECRET_CANARY'));
+    }
+  } finally { rmSync(directory,{recursive:true,force:true}); }
+});
+
+test('The manual workflow propagates a runner failure through its actual logging pipeline', () => {
+  const workflow=parse(readFileSync(new URL('../.github/workflows/native-performance.yml',import.meta.url),'utf8'));
+  assert.deepEqual(Object.keys(workflow.on),['workflow_dispatch']);
+  assert.equal(workflow.jobs.measure.defaults.run.shell,'bash');
+  const step=workflow.jobs.measure.steps.find(s=>s.name==='Measure two independent series on the same host');
+  const directory=mkdtempSync(join(tmpdir(),'np013-workflow-test-'));
+  try {
+    writeFileSync(join(directory,'dbus-run-session'),'#!/bin/sh\nexit "$NP013_EXIT_CODE"\n',{mode:0o755});
+    for(const code of [0,1]) {
+      const result=spawnSync('bash',['--noprofile','--norc','-e','-o','pipefail','-c',step.run],{cwd:directory,encoding:'utf8',env:{...process.env,PATH:`${directory}:${process.env.PATH}`,SCENARIO:'responses',LAUNCHES:'1',NP013_EXIT_CODE:String(code)}});
+      assert.equal(result.status,code);
+    }
+  } finally { rmSync(directory,{recursive:true,force:true}); }
 });

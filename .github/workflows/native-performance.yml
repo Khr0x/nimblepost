@@ -21,6 +21,9 @@ jobs:
   measure:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
     env:
       RUSTUP_TOOLCHAIN: '1.96.1'
       SCENARIO: ${{ inputs.scenario || 'startup' }}

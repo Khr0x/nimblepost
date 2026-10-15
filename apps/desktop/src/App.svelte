@@ -845,6 +845,7 @@
           send: async (address: string) => { change(['http', 'url'], address); await send(); if (error || !response) throw new Error(error || 'No response'); },
           sendRaw: async (address: string) => { change(['http', 'url'], address); await send(); },
           provideSecret: (name: string, value: string) => { secrets[name] = value; },
+          useEnvironment: () => chooseEnvironment('validation'),
           body: () => body,
           more: loadMore,
           reset: (id = 2) => changeWorkspace(id),

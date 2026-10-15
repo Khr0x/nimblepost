@@ -32,6 +32,7 @@ export interface MemoryControls {
   reset: (id?: number) => Promise<void>;
   sendRaw: (url: string) => Promise<void>;
   provideSecret: (name: string, value: string) => void;
+  useEnvironment: () => Promise<void>;
   body: () => string;
   inspect: () => { tabs: number[]; activeTab: number; busy: boolean; chunkLoading: boolean; activeBodyChars: number; activeOffset: number; bodyBytes: number; cachedBodyChars: number; activeCachedBodyChars: number; labels: number; attempts: number; treeCaches: number; error: string; recoveryWarning: string };
 }

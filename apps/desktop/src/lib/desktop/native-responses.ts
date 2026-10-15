@@ -11,7 +11,8 @@ const digest = async (text: string) => [...new Uint8Array(await crypto.subtle.di
 
 export async function validateResponses(controls: MemoryControls) {
   stopProfiling();
-  const send = (url: string, raw = false) => {
+  const send = async (url: string, raw = false) => {
+    await controls.useEnvironment();
     controls.provideSecret('np013-token', 'NP013_RUNTIME_SECRET_CANARY');
     return raw ? controls.sendRaw(url) : controls.send(url);
   };

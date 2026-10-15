@@ -32,25 +32,29 @@ async function collectionHash(directory) {
   const paths = (await files(directory)).sort();
   return hash((await Promise.all(paths.map(async p => `${p.slice(directory.length)}:${hash(await readFile(p))}`))).join('\n'));
 }
+export async function responseWorkspace(directory, url) {
+  await fixtures(directory, 100);
+  const workspace = await json(join(directory, 'profile/workspaces.json'));
+  workspace.workspaces.push({ id: 2, name: 'Empty validation workspace', collections: [], activeCollection: null });
+  await save(join(directory, 'profile/workspaces.json'), workspace);
+  for (const path of await files(join(directory, 'collection'))) if (path.endsWith('.yml') && !path.endsWith('opencollection.yml')) {
+    const source = await json(path);
+    source.http.headers = [{ name: 'X-Probe-Secret', value: '{{np013-token}}' }];
+    await save(path, source);
+  }
+  await mkdir(join(directory, 'collection/environments'));
+  await save(join(directory, 'collection/environments/validation.yml'), { name: 'validation', variables: [{ name: 'np013-token', secret: true, type: 'string' }] });
+  // Recovery refers to the original request; begin with clean tabs for this protocol.
+  await save(join(directory, 'profile/recovery.json'), { version: 1, workspaceId: 1, activeTab: null, home: true, tabs: [] });
+  await save(join(directory, 'plan.json'), { responses: true, url });
+}
 async function runLaunch(binary, sha, server, iteration) {
   const directory = await mkdtemp(join(tmpdir(), 'nimblepost-responses-'));
   const pageSize = Number(command('getconf', ['PAGESIZE'])), hz = Number(command('getconf', ['CLK_TCK']));
   let child, known = [], startTicks, sampling, stopped = false, sampleError, stderr = '';
   const points = [], phases = [], trafficStart = server.traffic.length;
   try {
-    await fixtures(directory, 100);
-    const workspace = await json(join(directory, 'profile/workspaces.json'));
-    workspace.workspaces.push({ id: 2, name: 'Empty validation workspace', collections: [], activeCollection: null });
-    await save(join(directory, 'profile/workspaces.json'), workspace);
-    for (const path of await files(join(directory, 'collection'))) if (path.endsWith('.yml') && !path.endsWith('opencollection.yml')) {
-      const source = await json(path);
-      source.runtime = { variables: [{ name: 'np013-token', secret: true, type: 'string' }] };
-      source.http.headers = [{ name: 'X-Probe-Secret', value: '{{np013-token}}' }];
-      await save(path, source);
-    }
-    // Recovery refers to the original request; begin with clean tabs for this protocol.
-    await save(join(directory, 'profile/recovery.json'), { version: 1, workspaceId: 1, activeTab: null, home: true, tabs: [] });
-    await save(join(directory, 'plan.json'), { responses: true, url: server.url });
+    await responseWorkspace(directory, server.url);
     const before = await collectionHash(join(directory, 'collection'));
     child = spawn(binary, [], { env: { ...process.env, NIMBLEPOST_VALIDATION_DIR: directory }, stdio: ['ignore', 'ignore', 'pipe'] });
     child.stderr.on('data', data => { stderr = (stderr + data).slice(-8192); });
