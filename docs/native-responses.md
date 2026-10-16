@@ -170,7 +170,8 @@ perfil intrusivo. Las diferencias entre modos dentro de una corrida orientan
 el siguiente cambio; no comparar porcentajes entre jobs/hosts diferentes.
 
 La barra conserva todos los tabs en DOM y teclado nativo. Un fieldset agrupa el
-estado disabled, en vez de actualizar 128 atributos; los tabs solo animan colores.
+estado disabled, en vez de actualizar 128 atributos. Los botones de la app conservan
+transiciones de color/borde/sombra/transform, sin animar opacidad al alternar loading.
 La sonda verifica bloqueo nativo de click/foco y visibilidad del tab activo.
 
 El visor calcula el anchor geométrico solo cuando lo restaura (cambio de wrap o

@@ -730,7 +730,7 @@ input[type=checkbox] { accent-color:var(--brand); }
 .rows-editor [data-slot=table-head] { height:32px; }
 .rows-editor [data-slot=table-cell] { white-space:normal; }
 .request-tab-trigger,.request-tab-close,.request-name-trigger { background:transparent; border:0; box-shadow:none; font-weight:400; border-radius:0; }
-.request-tab-trigger,.request-tab-close { transition-property:color,background-color,border-color; }
+.app-shell button { transition-property:color,background-color,border-color,box-shadow,transform; }
 .request-tab-trigger { justify-content:flex-start; flex-shrink:1; font-size:12px; }
 .request-tab-trigger:hover,.request-name-trigger:hover { background:transparent; }
 .request-tab-close { padding:0; border-radius:3px; }
