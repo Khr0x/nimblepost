@@ -1,18 +1,29 @@
 # Respuestas grandes, retención e interacción — NP-013
 
-La validación inicial cubre la app instalada **Linux x64**, release con
+La aceptación ALPHA cubre la app instalada **Linux x64**, release con
 `native-validation` y `VITE_NATIVE_VALIDATION=1`, perfil/WebView efímeros y sin
-inspector ni GC forzado. No acredita Windows/macOS ni presupuestos absolutos de
-NP-012. El workflow es exclusivamente manual.
+inspector ni GC forzado. No acredita Windows/macOS ni objetivos de NP-012.
+El workflow pesado sigue exclusivamente manual; el CI ligero no cambia.
 
-## Ejecutar
+## Contrato ALPHA v2 y ejecución acotada
 
-En **Actions → Native performance tooling → Run workflow**, seleccionar la rama,
-`scenario: responses` y `launches: 5`. Se construye/instala Debian instrumentado y
-se ejecutan referencia y candidata en el mismo host. `launches: 1` ejecuta una sola serie diagnóstica:
-no genera aceptación ni comparación. Conservar SHA resuelto, logs y artefactos.
-Si la referencia incumple presupuestos, la corrida se detiene y conserva esos
-resultados; no gasta otra serie ni calibra una banda desde una referencia rechazada.
+Por decisión explícita del usuario, `responses-linux-v2` sustituye la aceptación
+v1 de dos series de cinco lanzamientos y p95 local de 100 ms. Los reportes v1
+conservan sus fallos e identidad; no se reclasifican ni se aceptan como v2.
+100 ms queda como meta de optimización, no como gate de todas las acciones.
+
+En **Actions → Native performance tooling → Run workflow**, elegir la rama,
+`scenario: responses` y `launches: 3` (valores por defecto). Construye e instala
+Debian instrumentado y ejecuta **una sola serie de tres lanzamientos**, con los
+tres ciclos completos de cada uno. Guarda `acceptance.json` y recalcula sus
+presupuestos en `acceptance-evaluation.json`. No necesita referencia/candidata.
+`launches: 1` es diagnóstico sin aceptación. Startup mantiene su contrato de
+cinco lanzamientos: usar explícitamente `scenario: startup, launches: 5`.
+
+Ejecutar la aceptación al cerrar el hito o investigar una regresión, no por cada
+cambio cosmético. Esta última validación de NP-013 se ejecuta una vez: si falla,
+conservar evidencia y decidir el siguiente paso sin repetir hasta que salga verde.
+No ejecutar perfiles de heap/asignador ni ablaciones como parte de aceptación.
 
 Para ejecución local con requisitos Tauri, Xvfb, dbus, xclip y xdotool:
 
@@ -22,86 +33,83 @@ export NIMBLEPOST_BUILD_SHA=$(git rev-parse HEAD)
 VITE_NATIVE_VALIDATION=1 npm run tauri --workspace @nimblepost/desktop -- build --ci --features native-validation -- --locked
 sudo apt-get install -y ./target/release/bundle/deb/*.deb
 dbus-run-session -- xvfb-run -a node scripts/native-responses.mjs run \
-  --binary /usr/bin/NimblePost --launches 5 \
+  --binary /usr/bin/NimblePost --launches 3 \
   --conditions 'describir display, alimentación, modo energético y carga concurrente' \
-  --out reports/reference.json
-# Repetir con --out reports/candidate.json en el mismo entorno.
-node scripts/native-responses.mjs compare \
-  --reference reports/reference.json --candidate reports/candidate.json \
-  --out reports/comparison.json
+  --out reports/acceptance.json
+node scripts/native-responses.mjs evaluate \
+  --report reports/acceptance.json --out reports/acceptance-evaluation.json
 ```
 
-No publicar el instalador instrumentado. Las compilaciones ordinarias omiten
-feature/variables y módulos de validación; el workflow comprueba esa exclusión.
-El runner exige fuentes tracked limpias y SHA compilado coincidente. No modifica
-HOME ni usa perfiles/colecciones reales. El display Xvfb es desechable; la prueba
-reemplaza su clipboard con contenido sintético.
+No publicar el instalador instrumentado. Producción omite feature/variables y
+módulos de validación; el workflow comprueba esa exclusión. El runner exige
+fuentes tracked limpias y SHA compilado coincidente. No modifica HOME ni usa
+perfiles/colecciones reales. Xvfb es desechable; el clipboard usa datos sintéticos.
 
-El receptor reserva Content-Length solo tras validar el límite, y mantiene también
-la capacidad de crecimiento chunked dentro de 16 MiB. Los nuevos reportes incluyen
-`backendMemory.responseCapacity`, además de bytes usados; el comparador comprueba
-ese presupuesto cuando el campo está presente. Al cerrar/reset ambos son cero.
+## Carga y fronteras que se conservan
 
-## Carga y fronteras
+Por lanzamiento hay tres ciclos y 28 fases. Cada ciclo abre 64 pestañas y carga
+cuatro textos completos de 2 MiB. Reemplaza la última respuesta con JSON válido
+de exactamente 10 MiB, después con una línea Unicode de 2 MiB. Lee fragmentos
+IPC reales de 64 KiB y comprueba bytes/SHA-256, cambio de tab y copia. El host
+inyecta un click X11 real sobre Copy y calcula SHA-256 de la selección de xclip.
+La línea parte un emoji en el primer límite de 64 KiB; cambia de tab con el cuerpo
+parcial y exige integridad al completar. El decoder no entra en recuperación.
 
-`responses-linux-v1`: cinco lanzamientos por serie, tres ciclos por lanzamiento.
-Cada ciclo abre 64 pestañas y carga cuatro textos completos de 2 MiB. Después
-reemplaza la última respuesta con JSON válido de exactamente 10 MiB, y luego con
-una línea Unicode de 2 MiB. Lee fragmentos IPC reales de 64 KiB, comprueba bytes y
-SHA-256, cambio de tab y copia. El host inyecta un click X11 real sobre Copy y
-calcula SHA-256 de la selección leída por xclip; no intercepta ni simula clipboard.
-La línea larga parte un emoji en el primer límite de 64 KiB; se cambia de tab
-con la respuesta parcial y se exige integridad al completar. El decoder UTF-8
-vive con su respuesta/pestaña y se descarta al cerrar; no entra en recuperación.
+HTTP loopback sirve 17 MiB chunked sin Content-Length: exige error explícito por
+límite de 16 MiB y ningún cuerpo parcial retenido. Cancela una respuesta lenta
+con el botón real y demuestra tráfico positivo/cierre antes del final; un envío
+posterior funciona. Copy conserva el cuerpo original completo. El receptor limita
+también la capacidad a 16 MiB; v2 exige `backendMemory.responseCapacity`, junto
+con bytes usados y ceros al cerrar/reset.
 
-El servidor HTTP loopback también sirve 17 MiB chunked sin Content-Length:
-se exige error explícito por límite de 16 MiB y ningún cuerpo parcial retenido.
-Una respuesta lenta se cancela con el botón real de la UI; el registro del
-servidor debe demostrar tráfico positivo y cierre antes de terminar. Un envío
-posterior debe funcionar. Las respuestas grandes no se truncan: líneas largas
-se muestran en segmentos visuales acotados y Copy conserva el original.
+La sonda mide desde invocar la acción hasta el estado esperado y dos frames.
+Describe latencia instrumentada, sin certificar el final del pintado GPU ni la
+experiencia en una workstation. Conservar handler/flush/frames y outliers.
 
-La sonda mide desde invocar la acción de UI hasta el estado esperado y dos frames
-para carga de fragmento, scroll, wrap, cambio de tab y cancelación. Esto describe
-latencia de la acción instrumentada, no de un dispositivo físico ni final del
-pintado GPU. Presupuesto operativo fijado antes de medir: p95 por tipo de acción local ≤100 ms y
-máximo ≤250 ms; cancelación durante transferencia ≤1000 ms. Los fallos se conservan.
+| Tipo de acción | p95 ALPHA | Máximo |
+|---|---:|---:|
+| Fragmento (`chunk`) y scroll | ≤150 ms | ≤250 ms |
+| Cambio de pestaña, incluida respuesta parcial | ≤250 ms | ≤250 ms |
+| Wrap | ≤100 ms | ≤250 ms |
+| Cancelación durante transferencia | descriptivo | ≤1.000 ms |
 
-Al cerrar: cero cuerpos frontend/backend. Al cambiar a workspace vacío: cero
-snapshots, etiquetas, intentos y cachés. Un secreto sintético declarado se entrega
-solo en memoria; el servidor registra únicamente si lo recibió. El runner verifica
-YAML intacto y ausencia de cuerpos/secreto en history/recovery/perfil. Reportes
-contienen hashes/contadores, nunca cuerpos ni el secreto.
+El p95 se calcula por tipo sobre la serie, nunca agregado entre tipos. Con nueve
+muestras de pestaña por tipo el p95 coincide con el máximo y es descriptivo.
+Se publican tamaños de muestra y mínimos/medianas/máximos. Un fallo funcional,
+de privacidad o de presupuesto impide aceptar la serie.
 
-## Memoria y aceptación
+Al cerrar hay cero cuerpos frontend/backend; al vaciar workspace, cero snapshots,
+etiquetas, intentos y cachés. El secreto sintético declarado solo vive en memoria;
+el servidor registra si lo recibió. Se verifica YAML intacto y ausencia de cuerpos
+/secreto en history/recovery/perfil. Los reportes contienen hashes/contadores.
 
-Familia Linux por /proc, PID/starttime y helpers WebKit obligatorios. RSS y PSS se
-leen durante el uso cada ~100 ms. El máximo se etiqueta **máximo observado**:
-se puede perder un pico entre capturas; lecturas de procesos no son atómicas.
-PSS y RSS no son métricas intercambiables. El muestreo también añade carga.
+## Memoria y evaluación de una sola serie
 
-En cada fase asentada se esperan 3 segundos y se guardan seis muestras separadas
-al menos 200 ms. Al reset, el incremento de mediana PSS de ciclo 2 a 3 debe ser
-≤max(16 MiB, 5% del reset del ciclo 2), en cada lanzamiento. Este es un presupuesto
-operativo de esta carga y plataforma, sin acreditar 80 MB ni una ausencia general
-de fugas. La referencia debe pasar función, interacción y estabilización. La
-candidata también y su PSS reset máximo debe permanecer bajo el máximo de
-referencia + max(16 MiB, rango de PSS reset observado en referencia). Banda calibrada
-por host/carga/protocolo; no trasladarla a otras plataformas.
+Familia Linux por /proc, PID/starttime y helpers WebKit obligatorios. RSS/PSS se
+leen cada ~100 ms durante uso. El pico es **máximo observado**; las lecturas de
+procesos no son atómicas. RSS y PSS no son intercambiables y el muestreo añade carga.
 
-Comparación exige series diferentes, mismo host/hardware/SO/WebKit/condiciones,
-fixtures y número de lanzamientos. Recalcula resultados desde muestras, sin confiar
-en summaries. Estado de serie `passed` indica finalización funcional y de retención;
-`summary.budgetStatus` evalúa interacción. `diagnostic`, `running` y `failed` no son
-referencias válidas. CLI: 0 pasó, 2 presupuesto incumplido, 1 datos/función inválidos.
-El JSON se guarda atómicamente al completar cada fase y lanzamiento; una corrida
-interrumpida conserva su estado parcial y nunca se acepta como referencia.
-El límite del job manual es 60 minutos: el diagnóstico de tres ciclos tarda
-aproximadamente cinco minutos por lanzamiento en el runner observado.
-Una comparación passed del mismo binario es validación acotada del protocolo/carga,
-no una mejora de rendimiento entre versiones.
+En cada fase asentada se esperan tres segundos y se guardan seis muestras
+separadas al menos 200 ms. En CADA lanzamiento, el incremento de mediana PSS
+entre reset de ciclo 2 y 3 debe ser ≤max(16 MiB, 5% del reset del ciclo 2).
+Este presupuesto no cambia. No acredita 80 MB ni ausencia general de fugas.
+No hay banda calibrada contra otra serie; se evalúan función, límites de
+interacción y estabilización en la misma serie estándar de tres lanzamientos.
 
-La aceptación y los resultados observados se mantienen en Obsidian, task NP-013.
+`evaluate` recalcula desde raw, sin confiar en summaries. Rechaza v1, reportes
+parciales, running/failed/diagnostic y perfiles. `status: passed` del raw indica
+serie funcional completa; `summary.budgetStatus` y el archivo de evaluación
+indican aceptación de los presupuestos ALPHA. `absoluteTargetsEvaluated: false`
+se refiere a los objetivos globales de NP-012, no a estos rangos locales.
+CLI: 0 pasó, 2 presupuesto incumplido, 1 datos/función inválidos. Fallos de memoria
+aparecen por lanzamiento, sin ocultarlos entre medianas globales. El pipeline
+propaga salidas no cero y conserva artefactos incluso ante un fallo.
+
+El JSON se guarda atómicamente por fase/lanzamiento. El job tiene límite de
+60 minutos; tres lanzamientos reducen la campaña obligatoria de diez a tres,
+conservando los escenarios funcionales. La aceptación y sus límites viven también
+en Obsidian, tarea NP-013. Los diagnósticos siguientes se mantienen disponibles
+para investigaciones futuras y no forman parte de esta última serie.
 
 ## Diagnosticar memoria y latencia
 

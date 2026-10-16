@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { family, fixtures, parseStat } from './native-performance.mjs';
 import { hash } from './performance-report.mjs';
 import { serveResponses } from './response-fixtures.mjs';
-import { responseProtocol, summarizeResponses, compareResponses } from './response-report.mjs';
+import { responseProtocol, responseLaunchCount, summarizeResponses } from './response-report.mjs';
 import { diagnosticProtocol, parseAllocator, smapsCounters } from './response-diagnostics.mjs';
 import { attachHeapProfile, smapsGroups } from './response-heap-profile.mjs';
 
@@ -195,13 +195,15 @@ async function runLaunch(binary, sha, server, iteration, checkpoint, allocatorLi
 export async function main(args) {
   const [action, ...rest] = args, options = {};
   for (let i = 0; i < rest.length; i += 2) { assert(rest[i].startsWith('--') && rest[i + 1]); options[rest[i].slice(2)] = rest[i + 1]; }
-  if (action === 'compare') {
-    const result = compareResponses(await json(options.reference), await json(options.candidate));
+  if (action === 'evaluate') {
+    const report = await json(options.report), summary = summarizeResponses(report);
+    const result = { protocol: responseProtocol, status: summary.budgetStatus, seriesId: report.seriesId,
+      source: report.source, binary: report.binary, environment: report.environment, summary, absoluteTargetsEvaluated: false };
     await save(options.out, result); console.log(result.status); return result.status === 'passed' ? 0 : 2;
   }
   assert.equal(action, 'run'); assert.equal(process.platform, 'linux');
-  const binary = await realpath(options.binary), output = resolve(options.out), launchCount = Number(options.launches ?? 5);
-  assert(Number.isInteger(launchCount) && launchCount >= 1 && launchCount <= 30);
+  const binary = await realpath(options.binary), output = resolve(options.out), launchCount = Number(options.launches ?? responseLaunchCount);
+  assert([1, responseLaunchCount].includes(launchCount), 'Use three launches for ALPHA acceptance or one for diagnostics');
   assert(options.conditions?.length, 'Provide host/display/power/load conditions');
   const source = { sha: command('git', ['rev-parse', 'HEAD']), dirty: !!command('git', ['status', '--porcelain', '--untracked-files=no']) };
   assert.equal(source.dirty, false, 'Commit measured sources first');
@@ -230,8 +232,8 @@ export async function main(args) {
       delete report.partialLaunch; await save(output, report);
       console.log(`responses launch=${iteration}/${launchCount}`);
     }
-    report.status = launchCount >= 5 ? 'passed' : 'diagnostic';
-    if (launchCount >= 5) report.summary = summarizeResponses(report);
+    report.status = launchCount === responseLaunchCount ? 'passed' : 'diagnostic';
+    if (launchCount === responseLaunchCount) report.summary = summarizeResponses(report);
     await save(output, report); return report.summary?.budgetStatus === 'failed' ? 2 : 0;
   } catch (error) {
     report.status = 'failed'; report.error = error.message; report.partialPhases = error.partialPhases;

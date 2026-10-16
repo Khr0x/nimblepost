@@ -2,8 +2,16 @@ import assert from 'node:assert/strict';
 import { stats } from './performance-report.mjs';
 import { responseFixtures, fixtureIdentity } from './response-fixtures.mjs';
 
-export const responseProtocol = 'responses-linux-v1';
+export const responseProtocol = 'responses-linux-v2';
+export const responseLaunchCount = 3;
 export const responsePhases = ['four-responses', 'json', 'copy', 'line', 'copy', 'excess', 'after-cancel', 'closed', 'reset'];
+const actionBudgets = {
+  chunk: { p95: 150, max: 250 }, scroll: { p95: 150, max: 250 },
+  wrap: { p95: 100, max: 250 },
+  'tab-empty-loading': { p95: 250, max: 250 }, 'tab-partial': { p95: 250, max: 250 },
+  'tab-empty': { p95: 250, max: 250 }, 'tab-response': { p95: 250, max: 250 },
+  cancel: { max: 1000 },
+};
 const MiB = 2 ** 20;
 const median = values => stats(values).median;
 const signedStats = values => { const min = Math.min(...values); return Object.fromEntries(Object.entries(stats(values.map(v => v - min))).map(([key, value]) => [key, value + min])); };
@@ -30,8 +38,9 @@ export function summarizeResponses(report) {
   assert(/^[a-f0-9]{64}$/.test(report.binary.sha256));
   assert.equal(report.environment.platform, 'linux'); assert.equal(report.environment.arch, 'x64');
   assert.deepEqual(report.fixtures, fixtureIdentity(responseFixtures()), 'Unknown fixture recipe');
-  assert(report.launches.length >= 5 && report.launches.length === report.launchCount, 'Five complete launches required');
+  assert(report.launches.length === responseLaunchCount && report.launchCount === responseLaunchCount, 'Three complete launches required');
   const interactions = [], cancellations = [], deltas = [], resets = [], byAction = {};
+  const failures = [];
   for (const [i, launch] of report.launches.entries()) {
     assert.equal(launch.iteration, i + 1); assert.equal(launch.smoke.payload.error, '');
     assert(launch.smoke.payload.checks.includes('large-responses'));
@@ -45,13 +54,12 @@ export function summarizeResponses(report) {
       assert.equal(p.index, index); assert.equal(probe.buildSha, report.source.sha);
       assert.equal(probe.debugAssertions, false); assert.equal(probe.inspector, false);
       assert.equal(p.recoveryWarning, '');
-      if (probe.backendMemory.responseCapacity !== undefined) {
-        const capacity = probe.backendMemory.responseCapacity;
-        assert(Number.isInteger(capacity) && capacity >= probe.backendMemory.responseBytes && capacity <= 16 * MiB, 'Receive capacity exceeded the body budget');
-        if (p.name === 'closed' || p.name === 'reset') assert.equal(capacity, 0);
-      }
+      const capacity = probe.backendMemory.responseCapacity;
+      assert(Number.isInteger(capacity) && capacity >= probe.backendMemory.responseBytes && capacity <= 16 * MiB, 'Receive capacity exceeded the body budget');
+      if (p.name === 'closed' || p.name === 'reset') assert.equal(capacity, 0);
       if (index) { assert.equal(p.cycle, Math.floor((index - 1) / responsePhases.length) + 1); assert.equal(p.name, responsePhases[(index - 1) % responsePhases.length]); }
       for (const action of p.actions) {
+        assert(Object.hasOwn(actionBudgets, action.name), 'Unknown response action');
         assert(numeric(action.durationMs) && action.durationMs > 0);
         actionNames.push(action.name);
         (byAction[action.name] ??= []).push(action.durationMs);
@@ -100,27 +108,15 @@ export function summarizeResponses(report) {
     for (const name of ['chunk', 'scroll', 'wrap', 'tab-empty', 'tab-response', 'tab-empty-loading', 'tab-partial', 'cancel']) assert(actionNames.filter(action => action === name).length >= 3, `Missing repeated action: ${name}`);
     const growth = launchResets[2] - launchResets[1];
     deltas.push(growth); resets.push(...launchResets);
-    assert(growth <= Math.max(16 * MiB, launchResets[1] * .05), 'PSS did not stabilize between cycles 2 and 3');
+    if (growth > Math.max(16 * MiB, launchResets[1] * .05)) failures.push(`pss-stability-launch-${i + 1}`);
     assert(interactions.length && cancellations.length);
   }
   const local = stats(interactions), cancel = stats(cancellations);
-  const failures = [];
   const actionMs = Object.fromEntries(Object.entries(byAction).map(([name, values]) => [name, stats(values)]));
-  for (const [name, value] of Object.entries(actionMs)) if (name !== 'cancel' && (value.p95 > 100 || value.max > 250)) failures.push(`${name}-budget`);
-  if (cancel.max > 1000) failures.push('cancel-budget');
-  return { localActionMs: local, actionMs, cancelMs: cancel, resetPssBytes: stats(resets), cycleGrowthBytes: signedStats(deltas), budgetStatus: failures.length ? 'failed' : 'passed', failures };
-}
-
-export function compareResponses(reference, candidate) {
-  const before = summarizeResponses(reference), after = summarizeResponses(candidate);
-  assert.notEqual(reference.seriesId, candidate.seriesId);
-  assert.deepEqual(reference.environment, candidate.environment);
-  assert.deepEqual(reference.fixtures, candidate.fixtures);
-  assert.equal(reference.launchCount, candidate.launchCount);
-  const referenceAccepted = before.budgetStatus === 'passed';
-  const band = referenceAccepted ? Math.max(16 * MiB, before.resetPssBytes.max - before.resetPssBytes.min) : null;
-  const ceiling = referenceAccepted ? before.resetPssBytes.max + band : null;
-  const passed = referenceAccepted && after.budgetStatus === 'passed' && after.resetPssBytes.max <= ceiling;
-  return { protocol: responseProtocol, status: passed ? 'passed' : 'failed', referenceSeriesId: reference.seriesId, candidateSeriesId: candidate.seriesId,
-    reference: before, candidate: after, referenceAccepted, resetPssCeilingBytes: ceiling, calibratedBandBytes: band, absoluteTargetsEvaluated: false };
+  for (const [name, value] of Object.entries(actionMs)) {
+    const limit = actionBudgets[name];
+    if ((limit.p95 !== undefined && value.p95 > limit.p95) || value.max > limit.max) failures.push(`${name}-budget`);
+  }
+  return { acceptanceProfile: 'alpha-responses', actionBudgetsMs: actionBudgets, aspirationalLocalP95Ms: 100,
+    localActionMs: local, actionMs, cancelMs: cancel, resetPssBytes: stats(resets), cycleGrowthBytes: signedStats(deltas), budgetStatus: failures.length ? 'failed' : 'passed', failures };
 }

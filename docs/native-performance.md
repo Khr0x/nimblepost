@@ -27,6 +27,10 @@ hash antes del lanzamiento: esto tampoco es cold start.
 
 ## Ejecución Linux
 
+En el workflow manual elegir `scenario: startup` y `launches: 5`.
+Los valores por defecto corresponden ahora a NP-013 (respuestas, tres lanzamientos);
+el contrato de arranque de NP-011 no cambia.
+
 Con Node/Rust y requisitos nativos Tauri instalados, fuentes con commit:
 
 ```sh

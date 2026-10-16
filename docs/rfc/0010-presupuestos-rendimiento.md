@@ -127,6 +127,21 @@ ocurren en tiempos distintos: no se suman como pico simultáneo de la aplicació
 Los snapshots del inspector y `sample` son diagnósticos separados, excluidos de
 los controles de regresión. El inspector puede forzar GC y alterar las reservas.
 
+## NP-013 — contrato ALPHA v2 vigente
+
+Decisión autorizada del usuario (2026-10-15): una sola serie manual de tres
+lanzamientos, con tres ciclos completos por lanzamiento, sustituye el gate
+NP-013 de cinco+cinco y p95 de 100 ms uniforme. Usar `responses-linux-v2` y
+[el procedimiento vigente](../native-responses.md). P95 de fragmentos/scroll
+≤150 ms, tabs ≤250 ms, wrap ≤100 ms; máximo local ≤250 ms y cancelación
+≤1.000 ms. 100 ms sigue como meta de optimización. Memoria conserva
+PSS reset 2→3 ≤max(16 MiB,5% reset 2) en cada lanzamiento, además de ceros,
+capacidad HTTP de 16 MiB, integridad, privacidad y protección de borradores.
+No se requiere comparación con baseline. Recalcular desde raw y conservar todos
+los fallos. La aprobación no reetiqueta los reportes v1 ni acredita otras
+plataformas, cold start o la meta global de memoria de NP-012. Las secciones v1
+siguientes son historia; startup mantiene su contrato y no cambia por NP-013.
+
 ## Respuestas, retención e interacción
 
 Durante el uso debe conservarse todo el contenido y seguir funcionando la copia,

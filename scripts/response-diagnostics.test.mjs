@@ -34,7 +34,7 @@ test('Allocator footer counts all arenas once and rejects incomplete or inconsis
   for (const invalid of [xml.slice(0,-10), xml.replace('size="400"','size="-1"'), xml.replace('size="90"','size="900"'), xml.replace('</malloc>','<total type="mmap" count="1" size="1"/></malloc>'),xml.replace('version="1"','version="2"')]) assert.throws(()=>parseAllocator(invalid));
   assert.deepEqual(smapsCounters('Anonymous: 5 kB\nPrivate_Dirty: 4 kB\nPrivate_Clean: 3 kB\nSwap: 0 kB\n'), { AnonymousBytes:5120, Private_DirtyBytes:4096, Private_CleanBytes:3072, SwapBytes:0 });
   assert.throws(()=>smapsCounters('Anonymous: 5 kB'));
-  assert.throws(()=>summarizeResponses({ schemaVersion:1, protocol:diagnosticProtocol, status:'passed' }), /responses-linux-v1/);
+  assert.throws(()=>summarizeResponses({ schemaVersion:1, protocol:diagnosticProtocol, status:'passed' }), /responses-linux-v2/);
 });
 
 test('Linux preload exports real glibc XML only when explicitly enabled', { skip:process.platform !== 'linux' }, () => {
