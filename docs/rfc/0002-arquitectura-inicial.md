@@ -1,16 +1,19 @@
 # RFC-0002 — Arquitectura inicial de NimblePost
 
 Estado: arquitectura implementada para MVP 0 HTTP. Decisión inicial: 2026-09-30.
-Organización del código actualizada: 2026-10-01.
+Organización y contratos revisados en NP-016: 2026-10-16, base `b8aa888`.
+
+El [índice de contratos](README.md) distingue comportamiento implementado de
+contratos objetivo. [Motor](0004-motor-http.md), [IPC](0008-contrato-ipc-desktop.md)
+y [CLI](0009-contrato-cli.md) detallan el estado actual; [Git](0005-backend-git.md)
+e [importaciones](../import-contract.md) definen ampliaciones aún sin implementar.
 
 ## Objetivo y alcance
 
-La primera entrega funcional abrirá una colección local, resolverá sus variables,
-ejecutará HTTP y mostrará la respuesta. Desktop y una CLI mínima consumirán el
-mismo núcleo Rust. Los archivos seguirán siendo la fuente de verdad.
+La entrega actual abre una colección local, resuelve sus variables, ejecuta HTTP
+y muestra la respuesta. Desktop y una CLI mínima consumen el mismo núcleo Rust.
+Los archivos siguen siendo la fuente de verdad.
 
-Este RFC concreta las secciones 10, 11, 57 y 67 de la
-[propuesta](../../roadmap/api-client-local-first-open-source-propuesta.md).
 El [RFC-0003](0003-contrato-opencollection.md) define el almacenamiento.
 El [núcleo Rust inicial](../../crates/core/README.md) implementa lectura de
 requests/colecciones filesystem, resolución y HTTP con timeout/cancelación.
@@ -66,7 +69,6 @@ apps/desktop/
         workspaces/         # vista WorkspaceManager
   tests/
     unit/                   # pruebas Node de módulos puros del frontend
-    ui/                     # regresiones de navegador con IPC en memoria
   src-tauri/
     src/
       main.rs               # entrada del ejecutable
@@ -125,8 +127,8 @@ repositories ni crates para funciones que todavía no se implementan.
 1. El adaptador pide abrir una colección por una ruta elegida por el usuario.
 2. El core conserva el texto original, valida y proyecta los campos soportados.
 3. La selección de una petición usa su archivo e identificador local; no necesita
-   insertar IDs propietarios en YAML. En documentos bundled usa una ruta de
-   índices dentro de `items`, válida para esa revisión del documento.
+   insertar IDs propietarios en YAML. Bundled todavía no es ejecutable; su
+   identidad dentro de `items` se concretará antes de implementarlo en NP-015.
 4. El core resuelve variables y herencia, y valida que pueda ejecutar toda la
    configuración activa. No ignora silenciosamente scripts o autenticación.
 5. El motor prepara y ejecuta HTTP. Los valores resueltos son transitorios.
@@ -137,13 +139,11 @@ repositories ni crates para funciones que todavía no se implementan.
 La API implementada cubre abrir/listar/leer, preparar/ejecutar/cancelar, editar,
 guardar y leer fragmentos de respuesta. Enviar usa el borrador actual; guardar
 es una operación explícita sobre las plantillas.
-Los comandos Tauri son `choose_collection`, `open_example`, `read_request`,
-`send_request`, `cancel_request` y `read_response`; no constituyen una API estable.
-`save_document`, `read_environment`, `create_environment`, `read_history` y
-`clear_history` completan los comandos de MVP 0. Los valores de secretos y el
-override baseUrl son parámetros de ejecución; nunca son parte del guardado.
-Los errores incluirán categoría, archivo y campo afectado, sin copiar valores
-sensibles a mensajes de error.
+El inventario completo de comandos y DTOs está en el
+[RFC-0008](0008-contrato-ipc-desktop.md); no constituye una API pública estable.
+Los valores de secretos y el override baseUrl son parámetros de ejecución;
+nunca son parte del guardado. El core distingue errores tipados con ubicación
+cuando aplica; Session los adapta a strings por IPC, sin copiar valores sensibles.
 
 ## Dependencias y ejecución
 
@@ -161,10 +161,13 @@ sensibles a mensajes de error.
   o mayor retención. La integración con keychain sigue pendiente; los secretos
   suministrados se mantienen únicamente en memoria.
 
-El core no mantendrá un servidor ni daemon. Las operaciones largas serán
-cancelables. La UI recibirá metadatos y referencias al body; se prevé lectura
-por fragmentos de 64 KiB. Desktop retiene únicamente la última respuesta en Rust,
-con máximo de 16 MiB; la UI carga el primer fragmento y permite solicitar más.
+El core no mantiene un servidor ni daemon. La ejecución HTTP es cancelable;
+esto no convierte todas las operaciones de filesystem en cancelables.
+La UI recibe metadatos y lee el body por fragmentos de 64 KiB.
+Desktop retiene únicamente la última respuesta en Rust,
+con máximo de 16 MiB; la UI carga el primer fragmento y permite solicitar más
+después de completar HTTP. `release_response` libera la respuesta Rust coincidente;
+las pestañas pueden conservar texto ya cargado en el frontend.
 
 ## Persistencia y seguridad inicial
 
@@ -177,7 +180,7 @@ La escritura de requests y environments está habilitada con pruebas de
 conservación y detección de cambios externos en el backend Rust real.
 Las respuestas HTML se muestran como texto en la primera versión.
 
-## Orden de implementación y aceptación
+## Orden inicial de implementación y aceptación (histórico)
 
 1. **Contrato — esta entrega:** esquema fijado, fixtures con procedencia,
    diferencias registradas, campos iniciales y reglas de resolución/guardado.
@@ -194,12 +197,16 @@ antes de utilizarse desde Desktop o CLI.
 
 La [validación nativa manual](../../.github/workflows/native-validation.yml) compila,
 instala y abre los paquetes de Windows y Linux, y ejecuta las pruebas Rust.
-Los resultados Windows/Linux x64 siguen pendientes. El
+NP-010 acreditó por CI instalación/arranque/desinstalación x64; conserva pendiente
+el smoke interactivo ampliado. Ese CI no sustituye aceptación funcional manual. El
 [RFC-0010](0010-presupuestos-rendimiento.md) conserva el protocolo de rendimiento
 v1 como referencia histórica; NP-011 restablece un
 [runner/comparador Linux v2](../native-performance.md) con perfiles aislados y
 reportes actuales, incompatible con las series v1.
 Los objetivos absolutos pendientes no son garantías derivadas de elegir Tauri o Rust.
+NP-013 fue aceptada para ALPHA Linux con política `alpha-responses-v3`, banda
+de memoria ampliada y evidencia separada del fallo original; ver
+[respuestas](../native-responses.md). No acredita los objetivos globales NP-012.
 
 
 ## Workspaces locales implementados
