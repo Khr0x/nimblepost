@@ -104,8 +104,10 @@ export async function validateResponses(controls: MemoryControls) {
     await controls.open('request-00000.yml');
     for (let request = 1; request < 64; request++) await controls.open(`request-${String(request).padStart(5, '0')}.yml`);
     ensure(clean().tabs.length === 64, 'Expected 64 tabs');
+    await tick(); await frames();
     const group = document.querySelector<HTMLFieldSetElement>('fieldset.request-tabs-track');
-    ensure(group && !group.disabled, 'Native tab group must be enabled');
+    ensure(group, 'Native tab group is missing');
+    await wait(() => !group!.disabled, `Native tab group stayed disabled: ${JSON.stringify(controls.inspect())}`);
     const blockedTab = group!.querySelector<HTMLButtonElement>('.request-tab-trigger')!;
     const urlInput = document.querySelector<HTMLInputElement>('input[aria-label="Request URL"]');
     urlInput!.focus();

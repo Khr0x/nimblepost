@@ -37,7 +37,7 @@ export interface MemoryControls {
   provideSecret: (name: string, value: string) => void;
   useEnvironment: () => Promise<void>;
   body: () => string;
-  inspect: () => { tabs: number[]; activeTab: number; busy: boolean; chunkLoading: boolean; activeBodyChars: number; activeOffset: number; bodyBytes: number; cachedBodyChars: number; activeCachedBodyChars: number; labels: number; attempts: number; treeCaches: number; error: string; recoveryWarning: string };
+  inspect: () => { tabs: number[]; activeTab: number; busy: boolean; loading: boolean; chunkLoading: boolean; activeBodyChars: number; activeOffset: number; bodyBytes: number; cachedBodyChars: number; activeCachedBodyChars: number; labels: number; attempts: number; treeCaches: number; error: string; recoveryWarning: string };
 }
 
 async function memoryUsage(controls: MemoryControls, requests: number) {

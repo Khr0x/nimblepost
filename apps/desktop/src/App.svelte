@@ -861,7 +861,7 @@
           reset: (id = 2) => changeWorkspace(id),
           inspect: () => ({
             tabs: requestTabs.map(item => item.id),
-            activeTab: activeRequestTab, busy, chunkLoading,
+            activeTab: activeRequestTab, busy, loading, chunkLoading,
             activeBodyChars: body.length, activeOffset: offset, bodyBytes: response?.bodyBytes ?? 0,
             cachedBodyChars: requestTabs.reduce((sum, item) => sum + item.body.length, 0),
             activeCachedBodyChars: requestTabs.find(item => item.id === activeRequestTab)?.body.length ?? 0,
