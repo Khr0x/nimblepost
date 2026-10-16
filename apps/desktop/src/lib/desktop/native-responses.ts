@@ -110,8 +110,6 @@ export async function validateResponses(controls: MemoryControls) {
     await controls.open('request-00000.yml');
     for (let request = 1; request < 64; request++) await controls.open(`request-${String(request).padStart(5, '0')}.yml`);
     ensure(clean().tabs.length === 64, 'Expected 64 tabs');
-    // The fixture starts on Home; opening documents alone does not show the workbench.
-    await controls.activate(clean().tabs.at(-1)!);
     await tick(); await frames();
     const group = document.querySelector<HTMLFieldSetElement>('fieldset.request-tabs-track');
     ensure(group, 'Native tab group is missing');

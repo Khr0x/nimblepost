@@ -849,7 +849,10 @@
           heapInspector: workspace.validationPlan.heapInspector,
           hideResponseView: (hidden: boolean) => { validationHideResponseView = hidden; },
           hiddenResponseView: workspace.validationPlan.hideResponseView,
-          open: select,
+          open: async (path: string) => {
+            if (!collection) throw new Error('Validation requires an active collection');
+            if (!await chooseCollection(collection.root, path)) throw new Error('Validation could not open the request workbench');
+          },
           activate: activateRequestTab,
           close: async (id: number) => { await closeRequestTab(id); if (closingRequestTab === id) await discardClosingTab(); },
           send: async (address: string) => { change(['http', 'url'], address); await send(); if (error || !response) throw new Error(error || 'No response'); },
