@@ -3,6 +3,7 @@ import { stats } from './performance-report.mjs';
 import { responseFixtures, fixtureIdentity } from './response-fixtures.mjs';
 
 export const responseProtocol = 'responses-linux-v2';
+export const responseAcceptancePolicy = 'alpha-responses-v3';
 export const responseLaunchCount = 3;
 export const responsePhases = ['four-responses', 'json', 'copy', 'line', 'copy', 'excess', 'after-cancel', 'closed', 'reset'];
 const actionBudgets = {
@@ -13,6 +14,7 @@ const actionBudgets = {
   cancel: { max: 1000 },
 };
 const MiB = 2 ** 20;
+const memoryBudget = { minimumBytes: 16 * MiB, relativeGrowth: .10 };
 const median = values => stats(values).median;
 const signedStats = values => { const min = Math.min(...values); return Object.fromEntries(Object.entries(stats(values.map(v => v - min))).map(([key, value]) => [key, value + min])); };
 const numeric = value => Number.isFinite(value) && value >= 0;
@@ -108,7 +110,7 @@ export function summarizeResponses(report) {
     for (const name of ['chunk', 'scroll', 'wrap', 'tab-empty', 'tab-response', 'tab-empty-loading', 'tab-partial', 'cancel']) assert(actionNames.filter(action => action === name).length >= 3, `Missing repeated action: ${name}`);
     const growth = launchResets[2] - launchResets[1];
     deltas.push(growth); resets.push(...launchResets);
-    if (growth > Math.max(16 * MiB, launchResets[1] * .05)) failures.push(`pss-stability-launch-${i + 1}`);
+    if (growth > Math.max(memoryBudget.minimumBytes, launchResets[1] * memoryBudget.relativeGrowth)) failures.push(`pss-stability-launch-${i + 1}`);
     assert(interactions.length && cancellations.length);
   }
   const local = stats(interactions), cancel = stats(cancellations);
@@ -117,6 +119,6 @@ export function summarizeResponses(report) {
     const limit = actionBudgets[name];
     if ((limit.p95 !== undefined && value.p95 > limit.p95) || value.max > limit.max) failures.push(`${name}-budget`);
   }
-  return { acceptanceProfile: 'alpha-responses', actionBudgetsMs: actionBudgets, aspirationalLocalP95Ms: 100,
+  return { acceptanceProfile: responseAcceptancePolicy, memoryBudget, actionBudgetsMs: actionBudgets, aspirationalLocalP95Ms: 100,
     localActionMs: local, actionMs, cancelMs: cancel, resetPssBytes: stats(resets), cycleGrowthBytes: signedStats(deltas), budgetStatus: failures.length ? 'failed' : 'passed', failures };
 }

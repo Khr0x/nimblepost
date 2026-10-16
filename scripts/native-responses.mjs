@@ -196,8 +196,9 @@ export async function main(args) {
   const [action, ...rest] = args, options = {};
   for (let i = 0; i < rest.length; i += 2) { assert(rest[i].startsWith('--') && rest[i + 1]); options[rest[i].slice(2)] = rest[i + 1]; }
   if (action === 'evaluate') {
-    const report = await json(options.report), summary = summarizeResponses(report);
-    const result = { protocol: responseProtocol, status: summary.budgetStatus, seriesId: report.seriesId,
+    assert.notEqual(resolve(options.report), resolve(options.out), 'Evaluation output must not replace the input report');
+    const bytes = await readFile(options.report), report = JSON.parse(bytes), summary = summarizeResponses(report);
+    const result = { protocol: responseProtocol, acceptancePolicy: summary.acceptanceProfile, inputReportSha256: hash(bytes), status: summary.budgetStatus, seriesId: report.seriesId,
       source: report.source, binary: report.binary, environment: report.environment, summary, absoluteTargetsEvaluated: false };
     await save(options.out, result); console.log(result.status); return result.status === 'passed' ? 0 : 2;
   }

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { responseFixtures, fixtureIdentity, serveResponses } from './response-fixtures.mjs';
-import { responseProtocol, responsePhases, summarizeResponses } from './response-report.mjs';
+import { responseProtocol, responseAcceptancePolicy, responsePhases, summarizeResponses } from './response-report.mjs';
 import { parsePss, responseWorkspace, copyWindow } from './native-responses.mjs';
 import { hash } from './performance-report.mjs';
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
@@ -91,7 +91,7 @@ test('Complete reports recompute summaries; clipboard, release and HTTP checks a
   ]) { const broken=structuredClone(r); mutate(broken); assert.throws(()=>summarizeResponses(broken)); }
 });
 
-test('ALPHA per-action boundaries and the original memory budget remain enforced', () => {
+test('ALPHA per-action boundaries and the versioned memory budget remain enforced', () => {
   for (const [name,limit] of Object.entries({chunk:150,scroll:150,wrap:100,'tab-empty':250,'tab-response':250,'tab-empty-loading':250,'tab-partial':250,cancel:1000})) {
     const r=report();
     const actions=r.launches.flatMap(l=>l.phases.flatMap(p=>p.probe.payload.actions)).filter(a=>a.name===name);
@@ -102,11 +102,26 @@ test('ALPHA per-action boundaries and the original memory budget remain enforced
   }
   const outlier=report();outlier.launches[0].phases[2].probe.payload.actions.push(...Array.from({length:100},()=>({name:'chunk',durationMs:40})),{name:'chunk',durationMs:251});
   const summary=summarizeResponses(outlier);assert.equal(summary.actionMs.chunk.p95,40);assert(summary.failures.includes('chunk-budget'));
-  const leak=report('leak'); for(const sample of leak.launches[0].phases.at(-1).samples) { sample.pssBytes+=20*MiB; sample.processes[0].pssBytes+=20*MiB; }
+  const leak=report('leak'); for(const sample of leak.launches[0].phases.at(-1).samples) { sample.pssBytes+=21*MiB; sample.processes[0].pssBytes+=21*MiB; }
   assert(summarizeResponses(leak).failures.includes('pss-stability-launch-1'));
   const slowTab=report('slow-tab'); slowTab.launches[0].phases[4].probe.payload.actions.find(a=>a.name==='tab-response').durationMs=251;
   assert.equal(summarizeResponses(slowTab).localActionMs.p95,40);
   assert(summarizeResponses(slowTab).failures.includes('tab-response-budget'));
+});
+
+test('ALPHA memory concession enforces the 16 MiB floor and inclusive 10% boundary', () => {
+  for(const baseline of [100*MiB,200*MiB]) {
+    const r=report(),limit=Math.max(16*MiB,baseline*.10);
+    const setPss=(cycle,bytes)=>{
+      const phase=r.launches[0].phases.find(p=>p.probe.payload.name==='reset'&&p.probe.payload.cycle===cycle);
+      for(const sample of phase.samples){sample.pssBytes=bytes;sample.processes[0].pssBytes=bytes-sample.processes[1].pssBytes;}
+    };
+    setPss(2,baseline);setPss(3,baseline+limit);
+    const summary=summarizeResponses(r);assert.equal(summary.budgetStatus,'passed');
+    assert.equal(summary.acceptanceProfile,responseAcceptancePolicy);assert.equal(summary.acceptanceProfile,'alpha-responses-v3');
+    assert.deepEqual(summary.memoryBudget,{minimumBytes:16*MiB,relativeGrowth:.10});
+    setPss(3,baseline+limit+1);assert(summarizeResponses(r).failures.includes('pss-stability-launch-1'));
+  }
 });
 
 test('Single-series evaluate recalculates raw budgets and rejects legacy or partial reports', () => {
@@ -114,8 +129,13 @@ test('Single-series evaluate recalculates raw budgets and rejects legacy or part
   try {
     const path=join(directory,'report.json'),out=join(directory,'evaluation.json');
     const evaluate=r=>{writeFileSync(path,JSON.stringify(r));return spawnSync(process.execPath,[fileURLToPath(new URL('./native-responses.mjs',import.meta.url)),'evaluate','--report',path,'--out',out],{encoding:'utf8'});};
-    assert.equal(evaluate(report()).status,0);
-    assert.equal(JSON.parse(readFileSync(out)).status,'passed');
+    const existing=report();existing.summary={acceptanceProfile:'alpha-responses',budgetStatus:'failed',failures:['pss-stability-launch-1']};
+    assert.equal(evaluate(existing).status,0);
+    const accepted=JSON.parse(readFileSync(out));assert.equal(accepted.status,'passed');
+    assert.equal(accepted.acceptancePolicy,'alpha-responses-v3');assert.equal(accepted.inputReportSha256,hash(readFileSync(path)));
+    assert.equal(readFileSync(path,'utf8'),JSON.stringify(existing),'Evaluation must preserve the original report and its prior summary');
+    assert.equal(spawnSync(process.execPath,[fileURLToPath(new URL('./native-responses.mjs',import.meta.url)),'evaluate','--report',path,'--out',path],{encoding:'utf8'}).status,1);
+    assert.equal(readFileSync(path,'utf8'),JSON.stringify(existing));
     const slow=report();slow.summary={budgetStatus:'passed'};slow.launches[0].phases[4].probe.payload.actions.find(a=>a.name==='tab-response').durationMs=251;
     assert.equal(evaluate(slow).status,2);assert.equal(JSON.parse(readFileSync(out)).status,'failed');
     const legacy=report();legacy.protocol='responses-linux-v1';assert.equal(evaluate(legacy).status,1);

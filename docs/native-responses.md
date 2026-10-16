@@ -5,12 +5,25 @@ La aceptación ALPHA cubre la app instalada **Linux x64**, release con
 inspector ni GC forzado. No acredita Windows/macOS ni objetivos de NP-012.
 El workflow pesado sigue exclusivamente manual; el CI ligero no cambia.
 
-## Contrato ALPHA v2 y ejecución acotada
+## Medición v2, política ALPHA v3 y ejecución acotada
 
 Por decisión explícita del usuario, `responses-linux-v2` sustituye la aceptación
 v1 de dos series de cinco lanzamientos y p95 local de 100 ms. Los reportes v1
 conservan sus fallos e identidad; no se reclasifican ni se aceptan como v2.
 100 ms queda como meta de optimización, no como gate de todas las acciones.
+
+La política vigente `alpha-responses-v3` incorpora la concesión de memoria
+autorizada: ≤max(16 MiB, 10% del reset 2), por lanzamiento. La medición conserva
+el protocolo `responses-linux-v2`; rangos de latencia y checks funcionales no
+cambian. La banda anterior del 5% queda histórica. La aceptación cubre ALPHA
+Linux con banda ampliada; la estabilización estricta y la investigación de
+retención quedan diferidas y no se afirma ausencia de fugas.
+
+Se puede reevaluar una serie v2 ya completa sin otra campaña: usar `evaluate`
+con un archivo de salida NUEVO. Incluye `acceptancePolicy` e `inputReportSha256`;
+recalcula desde raw y preserva el reporte y su evaluación histórica fallida.
+Registrar aparte el SHA del evaluador y el SHA de la aplicación medida. Este
+ajuste modifica solo herramientas/tests/docs, sin cambiar la aplicación medida.
 
 En **Actions → Native performance tooling → Run workflow**, elegir la rama,
 `scenario: responses` y `launches: 3` (valores por defecto). Construye e instala
@@ -91,8 +104,9 @@ procesos no son atómicas. RSS y PSS no son intercambiables y el muestreo añade
 
 En cada fase asentada se esperan tres segundos y se guardan seis muestras
 separadas al menos 200 ms. En CADA lanzamiento, el incremento de mediana PSS
-entre reset de ciclo 2 y 3 debe ser ≤max(16 MiB, 5% del reset del ciclo 2).
-Este presupuesto no cambia. No acredita 80 MB ni ausencia general de fugas.
+entre reset de ciclo 2 y 3 debe ser ≤max(16 MiB, 10% del reset del ciclo 2).
+Es la concesión ALPHA v3; el 5% anterior no quedó acreditado. No acredita
+80 MB ni ausencia general de fugas.
 No hay banda calibrada contra otra serie; se evalúan función, límites de
 interacción y estabilización en la misma serie estándar de tres lanzamientos.
 
@@ -101,7 +115,11 @@ parciales, running/failed/diagnostic y perfiles. `status: passed` del raw indica
 serie funcional completa; `summary.budgetStatus` y el archivo de evaluación
 indican aceptación de los presupuestos ALPHA. `absoluteTargetsEvaluated: false`
 se refiere a los objetivos globales de NP-012, no a estos rangos locales.
-CLI: 0 pasó, 2 presupuesto incumplido, 1 datos/función inválidos. Fallos de memoria
+El resumen almacenado mantiene su política original; una reevaluación v3 se
+interpreta con la política declarada en su archivo separado.
+La política y su mínimo/ratio constan en el resumen; la evaluación no puede usar
+la misma ruta como entrada y salida. CLI: 0 pasó, 2 presupuesto incumplido,
+1 datos/función inválidos. Fallos de memoria
 aparecen por lanzamiento, sin ocultarlos entre medianas globales. El pipeline
 propaga salidas no cero y conserva artefactos incluso ante un fallo.
 

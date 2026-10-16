@@ -127,20 +127,28 @@ ocurren en tiempos distintos: no se suman como pico simultáneo de la aplicació
 Los snapshots del inspector y `sample` son diagnósticos separados, excluidos de
 los controles de regresión. El inspector puede forzar GC y alterar las reservas.
 
-## NP-013 — contrato ALPHA v2 vigente
+## NP-013 — medición v2 y política ALPHA v3 vigente
 
 Decisión autorizada del usuario (2026-10-15): una sola serie manual de tres
 lanzamientos, con tres ciclos completos por lanzamiento, sustituye el gate
 NP-013 de cinco+cinco y p95 de 100 ms uniforme. Usar `responses-linux-v2` y
 [el procedimiento vigente](../native-responses.md). P95 de fragmentos/scroll
 ≤150 ms, tabs ≤250 ms, wrap ≤100 ms; máximo local ≤250 ms y cancelación
-≤1.000 ms. 100 ms sigue como meta de optimización. Memoria conserva
-PSS reset 2→3 ≤max(16 MiB,5% reset 2) en cada lanzamiento, además de ceros,
+≤1.000 ms. 100 ms sigue como meta de optimización. La banda de memoria vigente es
+PSS reset 2→3 ≤max(16 MiB,10% reset 2) en cada lanzamiento, además de ceros,
 capacidad HTTP de 16 MiB, integridad, privacidad y protección de borradores.
 No se requiere comparación con baseline. Recalcular desde raw y conservar todos
 los fallos. La aprobación no reetiqueta los reportes v1 ni acredita otras
 plataformas, cold start o la meta global de memoria de NP-012. Las secciones v1
 siguientes son historia; startup mantiene su contrato y no cambia por NP-013.
+
+La ampliación del 5% al 10% es una concesión ALPHA autorizada después de la
+serie del SHA 766201a. `alpha-responses-v3` versiona la política separadamente
+del protocolo de medición `responses-linux-v2`. Reevaluar sus datos existentes
+en un archivo distinto, con hash del input y SHA del evaluador, permite cerrar
+NP-013 para ALPHA Linux sin otra campaña ni alterar los fallos originales.
+La estabilización estricta/investigación de retención queda diferida; no se
+declara ausencia de fugas. Los checks funcionales y de privacidad no se relajan.
 
 ## Respuestas, retención e interacción
 
