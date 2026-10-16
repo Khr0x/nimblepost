@@ -12,6 +12,8 @@ de carga y preparación no envían red ni guardan el documento:
 |---|---|---|
 | `Document::read/from_yaml` | Ruta/UTF-8 YAML | Original íntegro y proyección; `validate` comprueba `DocumentKind` |
 | `load_request` | Raíz explícita, ruta relativa, environment opcional | `LoadedRequest` con defaults de colección/carpetas y environment |
+| `load_defaults` (NP-014) | Raíz, carpeta relativa (vacío = colección) | DefaultsDocument con document/ancestors/missing; sin escritura |
+| `create_folder_defaults` (NP-014) | Raíz, carpeta y FieldEdit[] | Metadata nueva validada y exclusiva; colisiones fallan |
 | `LoadedRequest::standalone` | Documento HttpRequest | Request sin defaults ni environment implícitos |
 | `LoadedRequest::in_collection` | Raíz, documento transitorio, environment | Defaults de colección y environment; no infiere carpeta de un request sin guardar |
 | `prepare` | `LoadedRequest`, `ExecutionContext` | `PreparedRequest` validado; resolución solo en memoria |
@@ -53,6 +55,12 @@ la biblioteca no imprime ni registra payloads.
 - Guardado: hasta 1.024 ediciones permitidas, revisión por bytes, no-op conserva
   mtime, temporal en el mismo directorio y permisos conservados. Sin transacción
   multiarchivo ni garantía contra la ventana comprobación final → reemplazo.
+
+NP-014 amplía únicamente la whitelist de edición para defaults de colección/carpeta:
+request.headers/auth/variables; no metadata/settings/scripts. La lectura del editor
+conserva campos incompatibles con diagnósticos, sin volverlos ejecutables. Nuevos
+documentos se validan y los existentes no pueden introducir errores nuevos.
+Ver [contrato del editor](../defaults-editor.md).
 
 ## Errores y privacidad
 

@@ -45,6 +45,8 @@ native startup; execution on those targets is still pending. See the
   to save it later.
 - Edit query parameters, headers, variables, environments and JSON/text/XML bodies.
 - Use Basic, Bearer or API Key authentication, including inherited configuration.
+- Edit collection and folder defaults with source information, explicit Save/Discard
+  and protection against external changes. See the [defaults editor](docs/defaults-editor.md).
 - Send requests, cancel execution and inspect response status, timing and headers.
 - Read JSON with formatting, syntax highlighting and collapsible objects and
   arrays, or switch to Text, Raw or Hex views.

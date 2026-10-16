@@ -1,7 +1,8 @@
 # Desktop: Tauri 2 + Svelte 5
 
-**Estado al 2026-10-01:** MVP 0 HTTP funcional en desarrollo ALPHA (`0.1.0`),
-con workspaces locales, múltiples colecciones y edición en tabs.
+MVP 0 HTTP funcional en desarrollo ALPHA, con workspaces locales, múltiples
+colecciones y edición en tabs. NP-014 añade defaults de colección/carpeta;
+la versión vigente está en [package.json](package.json).
 
 El mapa de carpetas y sus responsabilidades está en
 [RFC-0002 — Organización del repositorio](../../docs/rfc/0002-arquitectura-inicial.md#organización-del-repositorio--2026-10-01).
@@ -347,3 +348,11 @@ interactivo pendiente y describe la evidencia necesaria para cerrar NP-010.
 
 La [validación manual de respuestas NP-013](../../docs/native-responses.md)
 ejercita HTTP grande, portapapeles, cancelación, retención e interacción en Linux.
+## Defaults de colección y carpeta
+
+**Edit defaults** en el menú de colección/carpeta edita headers/auth/variables
+del scope con procedencia. Save/Discard es explícito; abrir no escribe, y
+folder.yml ausente se crea exclusivamente al guardar. Conflictos y readonly
+bloquean overwrite; el diálogo protege cambios y teclado/foco. Los borradores de
+defaults no se incluyen en recovery de requests. Ver el
+[contrato y límites](../../docs/defaults-editor.md).

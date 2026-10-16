@@ -3,7 +3,7 @@
   import Rows from '$lib/components/Rows.svelte';
   import type { VariablePreview } from '$lib/desktop/api';
   import type { Config } from './draft';
-  import VariableInput from '$lib/components/VariableInput.svelte';
+  import AuthFields from '$lib/components/AuthFields.svelte';
   import { Textarea } from '$lib/components/ui/textarea';
   import { Button } from '$lib/components/ui/button';
   import * as Select from '$lib/components/ui/select';
@@ -24,15 +24,10 @@
     await tick();
     document.querySelector<HTMLInputElement>(`input[aria-label="variables ${name ? 'value' : 'name'} ${rows.length + 1}"]`)?.focus();
   }
-  const auth = $derived(value.http?.auth);
-  const authType = $derived(typeof auth === 'string' || !auth ? 'inherit' : auth.type);
   const bodyType = $derived(value.http?.body?.type ?? 'none');
   const bodyData = $derived(typeof value.http?.body?.data === 'string' ? value.http.body.data : '');
-  const authTypes = ['inherit', 'basic', 'bearer', 'apikey'];
   const bodyTypes = ['none', 'json', 'text', 'xml'];
-  const authOptions = $derived([...(!authTypes.includes(authType) ? [{ value: authType, label: `${authType} (retained)` }] : []), ...authTypes.map((value, index) => ({ value, label: ['Inherit', 'Basic', 'Bearer', 'API Key'][index] }))]);
   const bodyOptions = $derived([...(!bodyTypes.includes(bodyType) ? [{ value: bodyType, label: `${bodyType} (retained)` }] : []), ...bodyTypes.map(value => ({ value, label: value }))]);
-  const placements = [{ value: 'header', label: 'Header' }, { value: 'query', label: 'Query' }];
   const sections = $derived([
     { name: 'Params', count: value.http?.params?.length ?? 0 },
     { name: 'Auth', count: 0 },
@@ -40,10 +35,6 @@
     { name: 'Body', count: 0 },
     { name: 'Variables', count: value.runtime?.variables?.length ?? 0 },
   ]);
-  function setAuth(type: string) {
-    const next = type === 'inherit' ? 'inherit' : type === 'basic' ? { type, username: '', password: '{{password}}' } : type === 'bearer' ? { type, token: '{{token}}' } : { type, key: 'X-API-Key', value: '{{apiKey}}', placement: 'header' };
-    onedit(['http', 'auth'], next);
-  }
   function setBody(type: string) {
     if (type === 'none') onedit(['http', 'body'], null);
     else if (['json', 'text', 'xml'].includes(bodyType)) onedit(['http', 'body', 'type'], type);
@@ -77,10 +68,6 @@
     {:else if bodyType !== 'none' && !['json', 'text', 'xml'].includes(bodyType)}<p>This body is retained. Select a supported type to replace it.</p>{/if}</div>
 </Tabs.Content>
   <Tabs.Content value="Auth">
-    <div class="editor-fields"><div class="editor-select"><label for="request-auth-type">Authentication</label><Select.Root type="single" value={authType} items={authOptions} allowDeselect={false} {disabled} onValueChange={setAuth}><Select.Trigger id="request-auth-type" aria-label="Authentication type"><Select.Value /></Select.Trigger><Select.Content>{#each authOptions as option}<Select.Item value={option.value} label={option.label}>{option.label}</Select.Item>{/each}</Select.Content></Select.Root></div>
-      {#each (authType === 'basic' ? ['username', 'password'] : authType === 'bearer' ? ['token'] : authType === 'apikey' ? ['key', 'value'] : []) as field}<label>{field}<VariableInput {variables} {onvariableedit} aria-label={`Auth ${field}`} type={['password', 'token', 'value'].includes(field) ? 'password' : 'text'} value={auth?.[field] ?? ''} {disabled} oninput={(e) => onedit(['http', 'auth', field], e.currentTarget.value)} placeholder={'Value or {{secret}}'} autocomplete="off" /></label>{/each}
-      {#if authType === 'apikey'}<div class="editor-select"><label for="request-auth-placement">Placement</label><Select.Root type="single" value={auth.placement} items={placements} allowDeselect={false} {disabled} onValueChange={(value) => onedit(['http', 'auth', 'placement'], value)}><Select.Trigger id="request-auth-placement" aria-label="API key placement"><Select.Value /></Select.Trigger><Select.Content>{#each placements as option}<Select.Item value={option.value} label={option.label}>{option.label}</Select.Item>{/each}</Select.Content></Select.Root></div>{/if}
-      <p>Save writes configuration values to YAML. Use placeholders for credentials and supply secrets in memory below.</p>
-    </div>
+    <AuthFields auth={value.http?.auth} path={['http', 'auth']} {disabled} {variables} {onvariableedit} {onedit} />
   </Tabs.Content></Tabs.Root>
 </section>

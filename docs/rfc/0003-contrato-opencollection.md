@@ -5,7 +5,9 @@ Fecha: 2026-09-30.
 
 El alcance ejecutable y sus límites actuales están documentados en
 [crates/core](../../crates/core/README.md). La tabla siguiente sigue definiendo
-el contrato objetivo; bundled, edición de defaults y funciones fuera del subconjunto siguen pendientes.
+el contrato objetivo; bundled y funciones fuera del subconjunto siguen pendientes.
+NP-014 añade [edición de defaults](../defaults-editor.md) de colección/carpeta
+para headers/auth/variables con el mismo storage conservador.
 
 ## Versión y referencia
 
@@ -258,7 +260,9 @@ el separador de los bloques al editar y se vuelve a parsear con yaml-rust2 para
 comprobar equivalencia con las únicas rutas solicitadas. El guardado se bloquea
 si el editor no conserva el documento o introduce diagnósticos nuevos.
 La API Tauri acepta revisión + cambios de campo, nunca un reemplazo de archivo.
-No hay guardado estructurado de colección/carpeta ni transacciones multiarchivo.
+NP-014 habilita guardado estructurado de request.headers/auth/variables en
+colección/carpeta. Abrir no escribe; folder.yml ausente se crea exclusivamente
+en Save. No se editan otros campos del scope ni hay transacciones multiarchivo.
 
 El historial tiene un contrato independiente de la colección: la
 [política del MVP 0](../../apps/desktop/README.md#política-de-secretos-e-historial-del-mvp-0)

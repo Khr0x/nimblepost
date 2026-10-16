@@ -37,6 +37,12 @@ Además de método/URL se ejecutan headers, query params, body JSON/text/XML,
 Basic/Bearer/API Key, defaults de carpeta/colección y settings heredados.
 Configuraciones activas aún no soportadas producen error antes de enviar.
 
+`load_defaults(root, folder)` lee el scope y sus ancestros sin escribir, incluso
+si falta folder.yml. `Document::edited` admite headers/auth/variables de colección
+y carpeta; `create_folder_defaults` crea exclusivamente metadata ausente con
+ediciones validadas. Documentos existentes usan `save_document`; no recrea archivos
+borrados externamente. Ver [editor y contrato](../../docs/defaults-editor.md).
+
 ## Ejecutar el ejemplo
 
 Con un servidor HTTP escuchando en el puerto 3000:

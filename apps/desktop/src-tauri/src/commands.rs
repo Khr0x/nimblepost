@@ -1,8 +1,8 @@
 use crate::recovery::{RecoverySnapshot, RecoveryView};
 use crate::session::{
-    CollectionView, CreateRequestInput, HistoryView, RenameRequestInput, RequestInspection,
-    RequestSummary, RequestUpdate, RequestView, ResponseMeta, SaveInput, SendInput, Session,
-    WorkspaceView,
+    CollectionView, CreateRequestInput, DefaultsView, HistoryView, RenameRequestInput,
+    RequestInspection, RequestSummary, RequestUpdate, RequestView, ResponseMeta, SaveInput,
+    SendInput, Session, WorkspaceView,
 };
 use tauri::{Manager, State};
 use tauri_plugin_dialog::DialogExt;
@@ -264,6 +264,23 @@ pub(crate) async fn read_variable_context(
         .read_variable_context(path.as_deref(), environment.as_deref())
         .await
 }
+#[tauri::command]
+pub(crate) async fn read_defaults(
+    folder: std::path::PathBuf,
+    session: State<'_, Session>,
+) -> Result<DefaultsView, String> {
+    session.read_defaults(&folder).await
+}
+
+#[tauri::command]
+pub(crate) async fn create_folder_defaults(
+    folder: std::path::PathBuf,
+    edits: Vec<nimblepost_core::FieldEdit>,
+    session: State<'_, Session>,
+) -> Result<RequestView, String> {
+    session.create_folder_defaults(folder, edits).await
+}
+
 #[tauri::command]
 pub(crate) async fn read_environment(
     name: String,

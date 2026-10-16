@@ -130,6 +130,23 @@ impl Document {
 fn allowed(kind: DocumentKind, path: &[String]) -> bool {
     let fields: Vec<&str> = path.iter().map(String::as_str).collect();
     match fields.as_slice() {
+        ["request", "headers", rest @ ..]
+            if matches!(kind, DocumentKind::Collection | DocumentKind::Folder) =>
+        {
+            row_path(rest, &["name", "value", "disabled"])
+        }
+        ["request", "auth"]
+        | [
+            "request",
+            "auth",
+            "type" | "username" | "password" | "token" | "key" | "value" | "placement",
+        ] if matches!(kind, DocumentKind::Collection | DocumentKind::Folder) => true,
+        ["request", "variables", rest @ ..]
+            if matches!(kind, DocumentKind::Collection | DocumentKind::Folder) =>
+        {
+            row_path(rest, &["name", "value", "disabled"])
+                || matches!(rest, [index, "value", "type" | "data"] if index.parse::<usize>().is_ok())
+        }
         ["info", "name"] | ["http", "method" | "url" | "auth" | "body"]
             if kind == DocumentKind::HttpRequest =>
         {
@@ -332,6 +349,29 @@ pub async fn create_environment(root: PathBuf, name: String) -> Result<Document>
     })
     .await
     .map_err(|_| Error::config("", "environment", "No se pudo crear el environment"))?
+}
+
+/// Explicitly create missing folder metadata; never replace a file that appeared meanwhile.
+pub async fn create_folder_defaults(
+    root: PathBuf,
+    folder: PathBuf,
+    edits: Vec<FieldEdit>,
+) -> Result<Document> {
+    let scope = crate::load_defaults(&root, &folder).await?;
+    if !scope.missing {
+        return Err(scope
+            .document
+            .error("folder", "El archivo de defaults ya existe; recarga"));
+    }
+    let document = scope.document.edited(DocumentKind::Folder, &edits)?;
+    document.validate(DocumentKind::Folder)?;
+    tokio::task::spawn_blocking(move || {
+        let _writer = WRITER.lock().unwrap();
+        write_new_document(&document)?;
+        Ok(document)
+    })
+    .await
+    .map_err(|_| Error::config("", "folder", "No se pudieron crear los defaults"))?
 }
 
 fn write_new_document(doc: &Document) -> Result<()> {

@@ -18,6 +18,8 @@ export interface RequestInspection { request: RequestInfo; changed: boolean | nu
 export interface FieldEdit { path: string[]; value: unknown }
 export interface RequestInfo { name: string; method: string; url: string; revision: number; document: Record<string, any>; diagnostics: string[] }
 export interface RequestSummary { name: string; method: string }
+export interface DefaultsSource { path: string; headers: { name: string; disabled: boolean }[]; variables: { name: string; disabled: boolean }[]; auth: string | null }
+export interface DefaultsView { path: string; document: RequestInfo; ancestors: DefaultsSource[]; missing: boolean }
 export interface VariablePreview { name: string; value: string | null; scope: string; path: string; secret: boolean }
 export interface ResponseMeta {
   id: number; status: number; headers: { name: string; value: string }[];
@@ -58,6 +60,8 @@ export const api = {
   chunk: (id: number, offset: number) => invoke<string>('read_response', { id, offset }),
   releaseResponse: (id: number) => invoke<void>('release_response', { id }),
   save: (revision: number, edits: FieldEdit[]) => invoke<RequestInfo>('save_document', { input: { revision, edits } }),
+  defaults: (folder: string) => invoke<DefaultsView>('read_defaults', { folder }),
+  createFolderDefaults: (folder: string, edits: FieldEdit[]) => invoke<RequestInfo>('create_folder_defaults', { folder, edits }),
   environment: (name: string) => invoke<RequestInfo>('read_environment', { name }),
   variables: (path: string | null, environment: string | null) => invoke<VariablePreview[]>('read_variable_context', { path, environment }),
   createEnvironment: (name: string) => invoke<RequestInfo>('create_environment', { name }),
