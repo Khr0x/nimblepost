@@ -172,3 +172,8 @@ el siguiente cambio; no comparar porcentajes entre jobs/hosts diferentes.
 La barra conserva todos los tabs en DOM y teclado nativo. Un fieldset agrupa el
 estado disabled, en vez de actualizar 128 atributos; los tabs solo animan colores.
 La sonda verifica bloqueo nativo de click/foco y visibilidad del tab activo.
+
+El visor calcula el anchor geométrico solo cuando lo restaura (cambio de wrap o
+ancho con el mismo texto). Al añadir fragmentos evita una tabla Float64Array
+transitoria completa; el perfil exige en JSON ≤un cálculo por índice más 12 para
+asentamiento de viewport. Contenido, copia y tratamiento Unicode no cambian.

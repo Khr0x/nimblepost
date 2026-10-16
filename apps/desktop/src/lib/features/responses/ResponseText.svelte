@@ -32,12 +32,13 @@
     const source = text, wrapped = wrap, availableWidth = width;
     untrack(() => {
       const element = viewport;
-      const anchor = responseLineAt(tops, Math.max(0, scrollTop - 16));
       // Appending a chunk changes the old final line; all earlier measurements remain valid.
       const appended = wrapped === previousWrap && availableWidth === previousWidth && source.startsWith(previousText);
+      const sameText = source === previousText;
+      // Reading tops while appending would allocate a table invalidated below.
+      const anchor = element && !appended && sameText ? responseLineAt(tops, Math.max(0, scrollTop - 16)) : 0;
       if (appended) { heights.delete(previousCount - 1); heights.delete(previousCount - 2); }
       else heights.clear();
-      const sameText = source === previousText;
       previousText = source; previousWrap = wrapped; previousWidth = availableWidth;
       previousCount = starts.length;
       measurements++;

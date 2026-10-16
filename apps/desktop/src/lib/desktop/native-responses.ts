@@ -67,8 +67,14 @@ export async function validateResponses(controls: MemoryControls) {
     clearIpc();
     const state = controls.inspect();
     ensure(!state.recoveryWarning, state.recoveryWarning);
+    const frontend = controls.fineProfile ? takeResponseStages() : undefined;
+    if (frontend && name === 'json') {
+      const indexed = frontend.stages.find(stage => stage.name === 'response-index')?.count ?? 0;
+      const geometry = frontend.stages.find(stage => stage.name === 'response-tops')?.count ?? 0;
+      ensure(indexed > 0 && geometry <= indexed + 12, 'JSON appends rebuilt unused geometry tables');
+    }
     await emit('native-validation-responses', { index: index++, cycle, name, ...state, actions,
-      ...(controls.responseDiagnostics ? { diagnostics: { controls: controlsTiming, visibility: document.visibilityState, focused: document.hasFocus(), ...(controls.fineProfile ? { frontend: takeResponseStages() } : {}) } } : {}), ...extra });
+      ...(controls.responseDiagnostics ? { diagnostics: { controls: controlsTiming, visibility: document.visibilityState, focused: document.hasFocus(), ...(frontend ? { frontend } : {}) } } : {}), ...extra });
     actions = [];
     // Three seconds of settling, then six host samples 200 ms apart.
     if (settle) await delay(4500);
@@ -104,6 +110,8 @@ export async function validateResponses(controls: MemoryControls) {
     await controls.open('request-00000.yml');
     for (let request = 1; request < 64; request++) await controls.open(`request-${String(request).padStart(5, '0')}.yml`);
     ensure(clean().tabs.length === 64, 'Expected 64 tabs');
+    // The fixture starts on Home; opening documents alone does not show the workbench.
+    await controls.activate(clean().tabs.at(-1)!);
     await tick(); await frames();
     const group = document.querySelector<HTMLFieldSetElement>('fieldset.request-tabs-track');
     ensure(group, 'Native tab group is missing');
