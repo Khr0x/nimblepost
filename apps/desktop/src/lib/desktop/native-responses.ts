@@ -50,7 +50,16 @@ export async function validateResponses(controls: MemoryControls) {
       .map(entry => ({ name: entry.name.slice('native-ipc:'.length), startMs: entry.startTime - started, durationMs: entry.duration })) : undefined;
     const result = { name, durationMs: visibleAt - started, handlerMs: handled - started, flushMs: flushed - handled, frameMs: visibleAt - flushed, ...(ipc ? { ipc } : {}) };
     clearIpc();
-    return result;
+    if (!controls.fineProfile) return result;
+    // Inspect after the measured interval; retain CSS property names, never values or page text.
+    const animations = document.getAnimations().filter(animation => animation.playState === 'running');
+    return { ...result, animations: { dropped: Math.max(0, animations.length - 128), active: animations.slice(0, 128).map(animation => {
+      const effect = animation.effect;
+      const target = effect instanceof KeyframeEffect && effect.target instanceof Element ? effect.target : null;
+      const area = target?.closest('.request-tabs') ? 'tabs' : target?.closest('aside') ? 'sidebar' : target?.closest('main') ? 'workbench' : 'other';
+      const properties = effect instanceof KeyframeEffect ? [...new Set(effect.getKeyframes().flatMap(frame => Object.keys(frame)))].filter(key => !['offset', 'computedOffset', 'easing', 'composite'].includes(key)) : [];
+      return { area, properties };
+    }) } };
   };
   const action = async (name: string, perform: () => Promise<void> | void, visible: () => boolean) => { actions.push(await measureAction(name, perform, visible)); };
   const phase = async (cycle: number, name: string, extra: Record<string, unknown> = {}, settle = true) => {
@@ -175,6 +184,8 @@ export async function validateResponses(controls: MemoryControls) {
         ['system-font', '.app-shell { font-family: system-ui, sans-serif !important; }'],
         ['contained', '.response-text-viewport { contain: layout paint; }'],
         ['hidden-tabs', '.request-tabs { display: none !important; }'],
+        ['no-button-opacity-transition', '.app-shell button { transition-property: color, background-color, border-color, box-shadow, transform !important; }'],
+        ['group-disabled-opacity', '.request-tabs-track button:disabled { opacity: 1 !important; } .request-tabs-track:disabled { opacity: 0.5; }'],
         ['baseline-after', ''],
       ];
       try {

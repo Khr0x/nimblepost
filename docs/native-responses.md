@@ -136,7 +136,7 @@ y las limitaciones de [mallinfo](https://man7.org/linux/man-pages/man3/mallinfo.
 
 ### Perfil fino antes de corregir
 
-El escenario manual `response-profile` usa `responses-linux-profile-v2`: un ciclo,
+El escenario manual `response-profile` usa `responses-linux-profile-v3`: un ciclo,
 11 fases y reposo final. Activa agregados frontend acotados (32 etapas/16 muestras
 por etapa), mapeos por familia y heaptrack sobre el WebKit del perfil sintético.
 Abre/carga las 64 tabs antes de insertar heaptrack; comprueba PID/starttime e
@@ -164,7 +164,7 @@ que alcance a producir y un error explícito. La v1 anterior falló por timeout 
 no produjo stacks utilizables; su evidencia permanece separada.
 
 `response-ui-profile` repite el mismo ciclo/ablaciones/mapeos y timings sin
-heaptrack, con protocolo `responses-linux-ui-profile-v1`. Es el control para
+heaptrack, con protocolo `responses-linux-ui-profile-v2`. Es el control para
 localizar coste UI sin inyección; nunca acredita aceptación ni se mezcla con el
 perfil intrusivo. Las diferencias entre modos dentro de una corrida orientan
 el siguiente cambio; no comparar porcentajes entre jobs/hosts diferentes.
@@ -177,3 +177,9 @@ El visor calcula el anchor geométrico solo cuando lo restaura (cambio de wrap o
 ancho con el mismo texto). Al añadir fragmentos evita una tabla Float64Array
 transitoria completa; el perfil exige en JSON ≤un cálculo por índice más 12 para
 asentamiento de viewport. Contenido, copia y tratamiento Unicode no cambian.
+
+Los perfiles finos añaden controles de opacidad de botones y disabled del grupo
+de tabs (72 acciones de ablación en total). Tras cerrar el intervalo de cada
+acción, registran hasta 128 animaciones activas: categoría DOM y propiedades CSS,
+sin valores/texto. `dropped` declara truncamiento. No altera el protocolo de
+aceptación ni el diagnóstico de tres ciclos; son controles dentro del proceso.

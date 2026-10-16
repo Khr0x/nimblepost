@@ -214,7 +214,7 @@ export async function main(args) {
   const fineProfile=heapRequested || uiProfile; assert(!fineProfile || allocatorLibrary,'Fine profiling requires the diagnostic mode');
   if (allocatorLibrary) assert.equal(launchCount, 1, 'Allocator diagnostics are not acceptance series');
   const server = await serveResponses();
-  const report = { schemaVersion: 1, protocol: heapRequested ? 'responses-linux-profile-v2' : uiProfile ? 'responses-linux-ui-profile-v1' : allocatorLibrary ? diagnosticProtocol : responseProtocol, seriesId: randomUUID(), status: 'running', source, launchCount, launches: [],
+  const report = { schemaVersion: 1, protocol: heapRequested ? 'responses-linux-profile-v3' : uiProfile ? 'responses-linux-ui-profile-v2' : allocatorLibrary ? diagnosticProtocol : responseProtocol, seriesId: randomUUID(), status: 'running', source, launchCount, launches: [],
     mode: 'instrumented-release-ephemeral', absoluteTargetsEvaluated: false,
     binary: { sha256: hash(bytes), bytes: (await stat(binary)).size }, fixtures: server.fixtures,
     environment: { platform: process.platform, arch: process.arch, hostHash: hash(hostname()), cpu: cpus()[0].model, cpuCount: cpus().length,
