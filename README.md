@@ -141,6 +141,9 @@ repository's Actions tab.
 GraphQL, gRPC, WebSocket, imports, Git integration and collection runners are
 not implemented yet.
 
+The [contract index](docs/rfc/README.md) describes the implemented HTTP engine,
+Desktop IPC and CLI, and the agreed boundaries for future Git and imports.
+
 ## macOS ALPHA releases
 
 Releases use Changesets. Run `npm run changeset` with a user-facing change and
