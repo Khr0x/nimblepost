@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { responseLineIndex, appendResponseLineIndex, RESPONSE_SEGMENT_LENGTH } from '../../src/lib/features/responses/response-lines.ts';
 import { hasManyLines, responseLineStarts, responseLine, responseLineTops, responseLineWindow, responseLineAt, RESPONSE_LINE_HEIGHT, RESPONSE_OVERSCAN } from '../../src/lib/features/responses/response-lines.ts';
 
 test('Response line offsets preserve blank lines, mixed newlines, Unicode and partial final lines', () => {
@@ -38,4 +39,35 @@ test('Measured wrapped lines participate in viewport lookup without losing later
   assert.ok(range.start <= 500 && range.end > 500);
   assert.equal(responseLineAt(tops, -100), 0);
   assert.equal(responseLineAt(tops, Infinity), 999);
+});
+
+test('Long logical lines have bounded visual segments without losing Unicode or source content', () => {
+  const text = 'a'.repeat(RESPONSE_SEGMENT_LENGTH - 1) + '🙂雪'.repeat(800000);
+  assert.equal(responseLineIndex(text).segmented, true);
+  assert.equal(hasManyLines(text), true);
+  const starts = responseLineStarts(text);
+  const parts = [...starts].map((_, index) => responseLine(text, starts, index));
+  assert.equal(parts.join(''), text);
+  assert(parts.every(part => part.length <= RESPONSE_SEGMENT_LENGTH && !/^[\uDC00-\uDFFF]|[\uD800-\uDBFF]$/.test(part)));
+  const mixed = `${text}\r\nshort\n\n${text}\r`;
+  const offsets = responseLineStarts(mixed);
+  assert.equal([...offsets].map((start, index) => mixed.slice(start, offsets[index + 1] ?? mixed.length)).join(''), mixed);
+  assert.equal(responseLine(mixed, offsets, offsets.length - 1), '');
+  const tops = responseLineTops(starts.length, new Map());
+  for (const position of [0, tops.at(-1) / 2, tops.at(-1)]) {
+    const range = responseLineWindow(tops, position, 200);
+    assert(range.end - range.start <= Math.ceil(200 / RESPONSE_LINE_HEIGHT) + 2 * RESPONSE_OVERSCAN + 1);
+  }
+  assert.equal(responseLineIndex('a'.repeat(RESPONSE_SEGMENT_LENGTH) + '\r\nshort').segmented, false);
+});
+
+test('Incremental response offsets join partial CRLF and Unicode and reset for a replacement', () => {
+  let index = { text: '', starts: new Uint32Array(), segmented: false }, text = '';
+  for (const chunk of ['a'.repeat(2047), '\uD83D', '\uDE42', '\r', '\n', '雪\rshort\n', 'b'.repeat(40000), '\r', '\nend']) {
+    text += chunk; index = appendResponseLineIndex(text, index);
+    assert.deepEqual(index.starts, responseLineStarts(text));
+    assert.equal([...index.starts].map((start, i) => text.slice(start, index.starts[i + 1] ?? text.length)).join(''), text);
+  }
+  const replacement = appendResponseLineIndex('short\r\nnew', index);
+  assert.deepEqual([...replacement.starts], [0, 7]); assert.equal(replacement.segmented, false);
 });

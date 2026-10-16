@@ -1,15 +1,29 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte';
-  import { hasManyLines, responseLineStarts, responseLine, responseLineTops, responseLineAt, responseLineWindow, RESPONSE_LINE_HEIGHT } from './response-lines';
+  import { recordStage } from '../../desktop/native-profile';
+  import { hasManyLines, appendResponseLineIndex, responseLine, responseLineTops, responseLineAt, responseLineWindow, RESPONSE_LINE_HEIGHT } from './response-lines';
 
   let { text, wrap = true }: { text: string; wrap?: boolean } = $props();
   const virtual = $derived(hasManyLines(text));
-  const starts = $derived(virtual ? responseLineStarts(text) : new Uint32Array());
+  let indexCache: { text: string; starts: Uint32Array; segmented: boolean } = { text: '', starts: new Uint32Array(), segmented: false };
+  const index = $derived.by(() => {
+    const began = import.meta.env.VITE_NATIVE_VALIDATION === '1' ? performance.now() : 0;
+    indexCache = virtual ? appendResponseLineIndex(text, indexCache) : { text: '', starts: new Uint32Array(), segmented: false };
+    if (import.meta.env.VITE_NATIVE_VALIDATION === '1') recordStage('response-index', began, text.length);
+    return indexCache;
+  });
+  const starts = $derived(index.starts);
   let viewport = $state<HTMLDivElement | null>(null);
   let height = $state(0), width = $state(0), scrollTop = $state(0);
   let measurements = $state(0);
   const heights = new Map<number, number>();
-  const tops = $derived.by(() => { measurements; return responseLineTops(starts.length, heights); });
+  const tops = $derived.by(() => {
+    measurements;
+    const began = import.meta.env.VITE_NATIVE_VALIDATION === '1' ? performance.now() : 0;
+    const value = responseLineTops(starts.length, heights);
+    if (import.meta.env.VITE_NATIVE_VALIDATION === '1') recordStage('response-tops', began, starts.length);
+    return value;
+  });
   const range = $derived(responseLineWindow(tops, Math.max(0, scrollTop - 16), height));
   const visible = $derived(Array.from({ length: range.end - range.start }, (_, index) => range.start + index));
   let previousText = '', previousWrap = true, previousWidth = 0, previousCount = 0;
@@ -18,12 +32,13 @@
     const source = text, wrapped = wrap, availableWidth = width;
     untrack(() => {
       const element = viewport;
-      const anchor = responseLineAt(tops, Math.max(0, scrollTop - 16));
       // Appending a chunk changes the old final line; all earlier measurements remain valid.
       const appended = wrapped === previousWrap && availableWidth === previousWidth && source.startsWith(previousText);
-      if (appended) heights.delete(previousCount - 1);
-      else heights.clear();
       const sameText = source === previousText;
+      // Reading tops while appending would allocate a table invalidated below.
+      const anchor = element && !appended && sameText ? responseLineAt(tops, Math.max(0, scrollTop - 16)) : 0;
+      if (appended) { heights.delete(previousCount - 1); heights.delete(previousCount - 2); }
+      else heights.clear();
       previousText = source; previousWrap = wrapped; previousWidth = availableWidth;
       previousCount = starts.length;
       measurements++;
@@ -39,7 +54,11 @@
   $effect(() => {
     if (!viewport) return;
     const element = viewport;
-    const measure = () => { height = element.clientHeight; width = element.clientWidth; };
+    const measure = () => {
+      const began = import.meta.env.VITE_NATIVE_VALIDATION === '1' ? performance.now() : 0;
+      height = element.clientHeight; width = element.clientWidth;
+      if (import.meta.env.VITE_NATIVE_VALIDATION === '1') recordStage('response-viewport-layout', began);
+    };
     const observer = new ResizeObserver(measure);
     observer.observe(element); measure();
     return () => observer.disconnect();
@@ -50,6 +69,7 @@
     const element = viewport;
     range; text; wrap; width;
     const observer = new ResizeObserver(entries => {
+      const began = import.meta.env.VITE_NATIVE_VALIDATION === '1' ? performance.now() : 0;
       const oldTops = tops;
       const anchor = responseLineAt(oldTops, Math.max(0, element.scrollTop - 16));
       const offset = element.scrollTop - oldTops[anchor];
@@ -69,6 +89,7 @@
           if (element.isConnected) { element.scrollTop = atEnd ? element.scrollHeight : target; scrollTop = element.scrollTop; }
         });
       }
+      if (import.meta.env.VITE_NATIVE_VALIDATION === '1') recordStage('response-rows-resize', began, entries.length);
     });
     element.querySelectorAll('[data-response-line]').forEach(row => observer.observe(row));
     return () => observer.disconnect();
@@ -76,6 +97,7 @@
 </script>
 
 {#if virtual}
+  {#if index.segmented}<p class="response-body-note">Long lines are displayed in segments. Copy preserves the original content.</p>{/if}
   <!-- svelte-ignore a11y_no_noninteractive_tabindex (The scrollable region needs keyboard access.) -->
   <div class="response-text-viewport" class:nowrap={!wrap} bind:this={viewport} role="region" aria-label="Response body" tabindex="0" onscroll={() => scrollTop = viewport?.scrollTop ?? 0} data-response-lines={starts.length}>
     <div class="response-text-space" style:height={`${tops[starts.length]}px`}>

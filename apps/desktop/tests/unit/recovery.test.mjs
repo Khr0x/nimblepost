@@ -12,6 +12,8 @@ function tab(id, path = '') {
 
 test('recovery keeps tab order, active draft, full configuration and environment without runtime data', () => {
   const saved = tab(1, 'saved.yml'), unsaved = tab(2);
+  saved.decoder = new TextDecoder();
+  saved.decoder.decode(Uint8Array.of(0xf0), { stream: true });
   editDraft(saved.draft, ['http', 'url'], 'https://example.com/pending');
   editDraft(unsaved.draft, ['http', 'body'], { type: 'json', data: '{"hello":true}' });
   const activeDraft = structuredClone(unsaved.draft);
@@ -22,7 +24,7 @@ test('recovery keeps tab order, active draft, full configuration and environment
   assert.equal(snapshot.tabs[1].value.info.name, 'Active draft');
   assert.equal(snapshot.tabs[0].value.foreign.keep, true);
   const bytes = JSON.stringify(snapshot);
-  for (const text of ['execution-secret', 'sensitive-response', 'transient-override', 'revision', 'diagnostics']) assert.equal(bytes.includes(text), false);
+  for (const text of ['execution-secret', 'sensitive-response', 'transient-override', 'revision', 'diagnostics', 'decoder']) assert.equal(bytes.includes(text), false);
   activeDraft.value.info.name = 'Later';
   assert.equal(snapshot.tabs[1].value.info.name, 'Active draft', 'Queued backup is a detached copy');
   const restored = restoreRecovery(snapshot, [owner]);

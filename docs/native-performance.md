@@ -27,6 +27,10 @@ hash antes del lanzamiento: esto tampoco es cold start.
 
 ## Ejecución Linux
 
+En el workflow manual elegir `scenario: startup` y `launches: 5`.
+Los valores por defecto corresponden ahora a NP-013 (respuestas, tres lanzamientos);
+el contrato de arranque de NP-011 no cambia.
+
 Con Node/Rust y requisitos nativos Tauri instalados, fuentes con commit:
 
 ```sh
@@ -93,3 +97,7 @@ entre versiones usar un host persistente y referencia seleccionada explícitamen
 NP-012: cold start, memoria física/PSS/private, CPU, tamaño y presupuestos absolutos.
 NP-013: respuestas, retención e interacción. Adaptadores macOS/Windows requieren
 atribución fiable y evidencia propia.
+
+El escenario manual `responses` se describe en [NP-013](native-responses.md).
+`startup` conserva el protocolo de arranque. Una corrida diagnóstica de un
+lanzamiento de respuestas no equivale a una serie de aceptación.

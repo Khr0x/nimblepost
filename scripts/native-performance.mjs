@@ -39,7 +39,7 @@ export function parseStat(text, pageSize, hz) {
     startTicks: Number(fields[19]), rssBytes: Number(fields[21]) * pageSize, cpuMs: (Number(fields[11]) + Number(fields[12])) * 1000 / hz };
 }
 
-async function family(pid, startTicks, pageSize, hz) {
+export async function family(pid, startTicks, pageSize, hz) {
   const table = [];
   for (const entry of await readdir('/proc')) if (/^\d+$/.test(entry)) {
     try { table.push(parseStat(await readFile(`/proc/${entry}/stat`, 'utf8'), pageSize, hz)); } catch (error) {

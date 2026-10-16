@@ -1,5 +1,6 @@
 <script lang="ts">
   import { tick } from 'svelte';
+  import { recordStage } from '../../desktop/native-profile';
   import { Button } from '$lib/components/ui/button';
   import { ChevronLeft, ChevronRight, Plus, X } from '@lucide/svelte';
   import type { Draft } from './draft';
@@ -16,10 +17,12 @@
   let tabsCanScrollRight = $state(false);
   function updateTabNavigation() {
     if (!requestTabsList) return;
+    const began = import.meta.env.VITE_NATIVE_VALIDATION === '1' ? performance.now() : 0;
     const { scrollLeft, scrollWidth, clientWidth } = requestTabsList;
     tabsOverflow = scrollWidth > clientWidth + 1;
     tabsCanScrollLeft = scrollLeft > 1;
     tabsCanScrollRight = scrollLeft + clientWidth < scrollWidth - 1;
+    if (import.meta.env.VITE_NATIVE_VALIDATION === '1') recordStage('tabs-navigation-layout', began, tabs.length);
   }
   function observeRequestTabs(node: HTMLDivElement) {
     const observer = new ResizeObserver(updateTabNavigation);
@@ -40,28 +43,31 @@
       await tick(); // Account for the width occupied by newly visible chevrons.
       const tab = list.querySelector<HTMLElement>(`[data-tab-id="${id}"]`);
       if (!tab) return;
+      const began = import.meta.env.VITE_NATIVE_VALIDATION === '1' ? performance.now() : 0;
       const viewport = list.getBoundingClientRect();
       const rect = tab.getBoundingClientRect();
       if (rect.left < viewport.left) list.scrollLeft += rect.left - viewport.left;
       else if (rect.right > viewport.right) list.scrollLeft += rect.right - viewport.right;
       updateTabNavigation();
+      if (import.meta.env.VITE_NATIVE_VALIDATION === '1') recordStage('tabs-scroll-layout', began, tabs.length);
     })();
   });
 </script>
 
 <nav class="request-tabs" aria-label="Request tabs">
   <div class="request-tabs-list" bind:this={requestTabsList} use:observeRequestTabs onscroll={updateTabNavigation}>
-    <div class="request-tabs-track">
+    <fieldset class="request-tabs-track" {disabled}>
+      <legend class="sr-only">Open request tabs</legend>
       {#each tabs as item (item.id)}
         {@const current = item.id === activeId}
         {@const value = current ? draft?.value : item.draft.value}
         {@const name = value?.info?.name ?? 'Untitled'}
         <div class="request-document" class:active={current} data-tab-id={item.id}>
-          <Button variant="ghost" class="request-tab-trigger" title={name} aria-label={`Open request tab ${item.id}: ${name}`} aria-pressed={current} {disabled} onclick={() => onactivate(item.id)}><span class="http-method" data-method={value?.http?.method ?? 'GET'}>{value?.http?.method ?? 'GET'}</span><span class="request-tab-name">{name}</span>{#if current ? isEdited : item.draft.edits.length}<span class="request-dirty" aria-label="Unsaved changes"></span>{/if}</Button>
-          <Button variant="ghost" class="request-tab-close" aria-label={`Close request tab ${item.id}: ${name}`} title="Close tab" {disabled} onclick={() => onclose(item.id)}><X size={12} aria-hidden="true" /></Button>
+          <Button variant="ghost" class="request-tab-trigger" title={name} aria-label={`Open request tab ${item.id}: ${name}`} aria-pressed={current} onclick={() => onactivate(item.id)}><span class="http-method" data-method={value?.http?.method ?? 'GET'}>{value?.http?.method ?? 'GET'}</span><span class="request-tab-name">{name}</span>{#if current ? isEdited : item.draft.edits.length}<span class="request-dirty" aria-label="Unsaved changes"></span>{/if}</Button>
+          <Button variant="ghost" class="request-tab-close" aria-label={`Close request tab ${item.id}: ${name}`} title="Close tab" onclick={() => onclose(item.id)}><X size={12} aria-hidden="true" /></Button>
         </div>
       {/each}
-    </div>
+    </fieldset>
   </div>
   {#if tabsOverflow}
     <div class="request-tabs-navigation">

@@ -16,8 +16,12 @@ const profile = () => ({ frontendStages: frontendStages(),
   requestRows: document.querySelectorAll('.tree-row[data-tree-folder="false"]').length,
   treeElements: document.querySelectorAll('.tree-scroll *').length });
 
-interface MemoryControls {
+export interface MemoryControls {
   url: string;
+  responses?: boolean;
+  responseDiagnostics?: boolean;
+  fineProfile?: boolean;
+  heapProfile?: boolean;
   treeOnly?: boolean;
   responseOnly?: boolean;
   heapInspector?: boolean;
@@ -28,8 +32,12 @@ interface MemoryControls {
   close: (id: number) => Promise<void>;
   send: (url: string) => Promise<void>;
   more: () => Promise<void>;
-  reset: () => Promise<void>;
-  inspect: () => { tabs: number[]; activeBodyChars: number; activeOffset: number; bodyBytes: number; cachedBodyChars: number; activeCachedBodyChars: number; labels: number; attempts: number; treeCaches: number; error: string; recoveryWarning: string };
+  reset: (id?: number) => Promise<void>;
+  sendRaw: (url: string) => Promise<void>;
+  provideSecret: (name: string, value: string) => void;
+  useEnvironment: () => Promise<void>;
+  body: () => string;
+  inspect: () => { tabs: number[]; activeTab: number; busy: boolean; loading: boolean; chunkLoading: boolean; activeBodyChars: number; activeOffset: number; bodyBytes: number; cachedBodyChars: number; activeCachedBodyChars: number; labels: number; attempts: number; treeCaches: number; error: string; recoveryWarning: string };
 }
 
 async function memoryUsage(controls: MemoryControls, requests: number) {
@@ -168,7 +176,10 @@ export async function validateNative(state: { error: string; requests: number; t
       await api.saveRecovery(recovered.snapshot);
       checks.push('recovery-read-write');
     }
-    if (memory) { await memoryUsage(memory, state.requests); checks.push('memory-usage'); }
+    if (memory?.responses) {
+      await (await import('./native-responses')).validateResponses(memory);
+      checks.push('large-responses');
+    } else if (memory) { await memoryUsage(memory, state.requests); checks.push('memory-usage'); }
     const example = await api.example();
     if (!example.readOnly || !example.requests.length) throw new Error('Bundled example is missing');
     const request = await api.request(example.requests[0]);

@@ -2,6 +2,17 @@ name: Native performance tooling
 
 on:
   workflow_dispatch:
+    inputs:
+      scenario:
+        description: Measurement scenario
+        type: choice
+        options: [startup, responses, response-diagnostics, response-profile, response-ui-profile]
+        default: responses
+      launches:
+        description: Responses 3 acceptance or 1 diagnostic; startup 5
+        type: choice
+        options: ['3', '1', '5']
+        default: '3'
 
 permissions:
   contents: read
@@ -9,10 +20,21 @@ permissions:
 jobs:
   measure:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
     env:
       RUSTUP_TOOLCHAIN: '1.96.1'
+      SCENARIO: ${{ inputs.scenario || 'responses' }}
+      LAUNCHES: ${{ inputs.launches || '3' }}
     steps:
+      - name: Validate measurement selection
+        run: |
+          case "$SCENARIO:$LAUNCHES" in
+            responses:3|responses:1|startup:5|response-diagnostics:*|response-profile:*|response-ui-profile:*) ;;
+            *) echo 'Use responses with 3 or 1 launches; startup still requires 5.'; exit 1 ;;
+          esac
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
@@ -25,7 +47,7 @@ jobs:
           npm ci
           rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev xvfb dbus-x11
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev xvfb dbus-x11 xclip xdotool
       - uses: actions/cache@v4
         with:
           path: |
@@ -36,14 +58,23 @@ jobs:
           restore-keys: native-${{ runner.os }}-${{ runner.arch }}-${{ env.RUSTUP_TOOLCHAIN }}-
       - name: Verify report contracts and ordinary frontend probe exclusion
         run: |
-          node --test scripts/performance-report.test.mjs
+          node --test scripts/performance-report.test.mjs scripts/response-report.test.mjs scripts/response-diagnostics.test.mjs
           npm run build
           node --input-type=module -e '
             import { readdirSync, readFileSync } from "node:fs";
             for (const file of readdirSync("apps/desktop/dist", { recursive: true }).filter(f => f.endsWith(".js"))) {
-              if (/native-validation-ready|native-validation-smoke/.test(readFileSync(`apps/desktop/dist/${file}`, "utf8"))) throw new Error("Ordinary frontend contains validation probes");
+              if (/native-validation-ready|native-validation-smoke|native-validation-responses|NP013_RUNTIME_SECRET|native-ipc:/.test(readFileSync(`apps/desktop/dist/${file}`, "utf8"))) throw new Error("Ordinary frontend contains validation probes");
             }
           '
+      - name: Build external allocator diagnostic (never package it)
+        if: env.SCENARIO == 'response-diagnostics' || env.SCENARIO == 'response-profile' || env.SCENARIO == 'response-ui-profile'
+        run: |
+          cc -shared -fPIC -pthread -Wall -Wextra -Werror -O2 scripts/response-allocator.c -o /tmp/np013-allocator.so
+      - name: Prepare fine profiling tools on the disposable runner
+        if: env.SCENARIO == 'response-profile'
+        run: |
+          sudo apt-get install -y heaptrack gdb
+          sudo sysctl kernel.yama.ptrace_scope=0
       - name: Build and install instrumented package (never publish this installer)
         env:
           VITE_NATIVE_VALIDATION: '1'
@@ -51,17 +82,38 @@ jobs:
         run: |
           npm run tauri --workspace @nimblepost/desktop -- build --ci --features native-validation -- --locked
           sudo apt-get install -y ./target/release/bundle/deb/*.deb
-      - name: Measure two independent series on the same host
+      - name: Measure selected scenario
         run: |
           mkdir -p reports/native-performance
-          for series in reference candidate; do
-            dbus-run-session -- xvfb-run -a node scripts/native-performance.mjs run \
-              --binary /usr/bin/NimblePost --launches 5 \
+          case "$SCENARIO" in
+            startup) runner=scripts/native-performance.mjs ;;
+            responses|response-diagnostics|response-profile|response-ui-profile) runner=scripts/native-responses.mjs ;;
+            *) exit 1 ;;
+          esac
+          series_names='reference candidate'
+          if [ "$SCENARIO" = responses ]; then
+            series_names=acceptance
+            if [ "$LAUNCHES" = 1 ]; then series_names=diagnostic; fi
+          fi
+          extra_args=()
+          if [ "$SCENARIO" = response-diagnostics ] || [ "$SCENARIO" = response-profile ] || [ "$SCENARIO" = response-ui-profile ]; then
+            series_names=diagnostic
+            LAUNCHES=1
+            extra_args=(--allocator-library /tmp/np013-allocator.so)
+          fi
+          if [ "$SCENARIO" = response-profile ]; then extra_args+=(--heap-profile true); fi
+          if [ "$SCENARIO" = response-ui-profile ]; then extra_args+=(--ui-profile true); fi
+          for series in $series_names; do
+            result=0
+            dbus-run-session -- xvfb-run -a node "$runner" run \
+              --binary /usr/bin/NimblePost --launches "$LAUNCHES" \
               --conditions 'GitHub Ubuntu x64; Xvfb; provider-managed power; host load unknown; no concurrent builds in job' \
-              --out "reports/native-performance/$series.json" \
-              2>&1 | tee "reports/native-performance/$series.log"
+              --out "reports/native-performance/$series.json" "${extra_args[@]}" \
+              2>&1 | tee "reports/native-performance/$series.log" || result=$?
+            if [ "$result" -ne 0 ]; then exit "$result"; fi
           done
       - name: Compare tooling series (not a release gate)
+        if: env.SCENARIO == 'startup'
         run: |
           set +e
           node scripts/native-performance.mjs compare \
@@ -71,6 +123,12 @@ jobs:
           result=$?
           set -e
           test "$result" -ne 1 && test "$result" -le 3
+      - name: Evaluate ALPHA response budgets from the single series
+        if: always() && env.SCENARIO == 'responses' && env.LAUNCHES == '3'
+        run: |
+          node scripts/native-responses.mjs evaluate \
+            --report reports/native-performance/acceptance.json \
+            --out reports/native-performance/acceptance-evaluation.json
       - name: Preserve complete or partial evidence
         if: always()
         uses: actions/upload-artifact@v4

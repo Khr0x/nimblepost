@@ -12,6 +12,7 @@ export interface RequestTab {
   response: ResponseMeta | null;
   body: string;
   offset: number;
+  decoder?: TextDecoder;
   restored?: boolean;
   recoveryNotice?: string;
   externalChange?: string;
@@ -39,6 +40,6 @@ export function refreshExternalTab(tab: RequestTab, inspection: RequestInspectio
   }
   tab.source = inspection.request; tab.draft = draftFrom(inspection.request);
   tab.externalChange = ''; tab.restored = false;
-  tab.response = null; tab.body = ''; tab.offset = 0;
+  tab.response = null; tab.body = ''; tab.offset = 0; tab.decoder = undefined;
   return true;
 }

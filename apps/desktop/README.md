@@ -344,3 +344,6 @@ el canal de releases públicas, actualmente macOS ALPHA.
 La [guía de aceptación Windows/Linux x64](../../docs/native-validation.md) separa
 los checks automáticos de instalación/arranque/desinstalación del smoke
 interactivo pendiente y describe la evidencia necesaria para cerrar NP-010.
+
+La [validación manual de respuestas NP-013](../../docs/native-responses.md)
+ejercita HTTP grande, portapapeles, cancelación, retención e interacción en Linux.
