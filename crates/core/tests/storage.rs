@@ -1,8 +1,8 @@
 use nimblepost_core::{
     Document, DocumentKind, Error, FieldEdit, History, HistoryEntry, collection_index,
-    create_collection, create_environment, create_folder, create_request,
-    create_request_from_draft, delete_request, duplicate_request, load_request, rename_folder,
-    rename_request, save_document,
+    create_collection, create_environment, create_folder, create_folder_defaults, create_request,
+    create_request_from_draft, delete_request, duplicate_request, load_defaults, load_request,
+    rename_folder, rename_request, save_document,
 };
 use serde_json::json;
 use std::fs;
@@ -14,6 +14,186 @@ fn edit(path: &[&str], value: Option<serde_json::Value>) -> FieldEdit {
     }
 }
 const SOURCE: &str = "# comentario ajeno\ninfo: {name: Test, type: http}\nhttp:\n  method: GET # conservar inline\n  url: '{{baseUrl}}/users'\n  headers:\n    - name: X-Demo # conservar fila\n      value: 'yes'\n      description: untouched\nforeign: {note: 'keep unknown'}\ndocs: |\n  multilínea ñ\n";
+
+#[tokio::test]
+async fn defaults_preserve_yaml_and_only_allow_the_supported_scope_fields() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = create_collection(temp.path().into(), "API".into(), "api".into())
+        .await
+        .unwrap();
+    let original = "# root comment\nopencollection: '1.0.0'\ninfo: {name: API}\nrequest:\n  headers:\n    - name: X-Demo # keep row comment\n      value: 'before'\n  settings: {http: {timeout: 1234}} # keep settings\nextensions: {foreign: {unknown: true}}\n";
+    fs::write(root.join("opencollection.yml"), original).unwrap();
+    let scope = load_defaults(&root, std::path::Path::new(""))
+        .await
+        .unwrap();
+    assert!(!scope.missing);
+    assert!(scope.ancestors.is_empty());
+    assert_eq!(fs::read_to_string(scope.document.path()).unwrap(), original);
+    let metadata = fs::metadata(scope.document.path()).unwrap();
+    let unchanged = scope
+        .document
+        .edited(DocumentKind::Collection, &[])
+        .unwrap();
+    let saved = save_document(scope.document, unchanged).await.unwrap();
+    assert_eq!(
+        fs::metadata(saved.path()).unwrap().modified().unwrap(),
+        metadata.modified().unwrap()
+    );
+    let edited = saved
+        .edited(
+            DocumentKind::Collection,
+            &[
+                edit(&["request", "headers", "0", "value"], Some(json!("after"))),
+                edit(
+                    &["request", "auth"],
+                    Some(json!({"type":"bearer","token":"{{token}}"})),
+                ),
+                edit(
+                    &["request", "variables"],
+                    Some(json!([{"name":"host","value":"https://example.test"}])),
+                ),
+            ],
+        )
+        .unwrap();
+    let saved = save_document(saved, edited).await.unwrap();
+    let text = fs::read_to_string(saved.path()).unwrap();
+    for fragment in [
+        "# root comment",
+        "# keep row comment",
+        "settings: {http: {timeout: 1234}} # keep settings",
+        "extensions: {foreign: {unknown: true}}",
+        "{{token}}",
+    ] {
+        assert!(text.contains(fragment), "{text}");
+    }
+    assert_eq!(
+        fs::metadata(saved.path()).unwrap().permissions(),
+        metadata.permissions()
+    );
+    for path in [
+        &["info", "name"][..],
+        &["request", "settings"],
+        &["opencollection"],
+        &["request", "scripts"],
+        &["request", "variables", "0", "secret"],
+    ] {
+        assert!(
+            saved
+                .edited(DocumentKind::Collection, &[edit(path, Some(json!(true)))])
+                .is_err()
+        );
+    }
+
+    fs::create_dir(root.join("nested")).unwrap();
+    let folder = "# folder comment\ninfo: {name: Nested, type: folder}\nrequest:\n  auth: inherit\nforeign: {keep: true}\n".replace('\n', "\r\n");
+    fs::write(root.join("nested/folder.yml"), &folder).unwrap();
+    let scope = load_defaults(&root, std::path::Path::new("nested"))
+        .await
+        .unwrap();
+    assert_eq!(scope.ancestors.len(), 1);
+    let edited = scope
+        .document
+        .edited(
+            DocumentKind::Folder,
+            &[edit(
+                &["request", "auth"],
+                Some(json!({"type":"basic","username":"user","password":"{{password}}"})),
+            )],
+        )
+        .unwrap();
+    let saved = save_document(scope.document, edited).await.unwrap();
+    assert!(saved.original().contains("foreign: {keep: true}\r\n"));
+    assert!(saved.original().contains("# folder comment\r\n"));
+    let bytes = fs::read(saved.path()).unwrap();
+    fs::write(saved.path(), "# external\n").unwrap();
+    assert!(matches!(
+        save_document(saved.clone(), saved.clone()).await,
+        Err(Error::Conflict { .. })
+    ));
+    assert_eq!(fs::read_to_string(saved.path()).unwrap(), "# external\n");
+    fs::remove_file(saved.path()).unwrap();
+    assert!(matches!(
+        save_document(saved.clone(), saved).await,
+        Err(Error::Conflict { .. })
+    ));
+    assert!(!root.join("nested/folder.yml").exists());
+    assert!(!bytes.is_empty());
+}
+
+#[tokio::test]
+async fn missing_folder_defaults_are_explicit_exclusive_and_fenced_to_the_root() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = create_collection(temp.path().into(), "API".into(), "api".into())
+        .await
+        .unwrap();
+    fs::create_dir_all(root.join("parent/child")).unwrap();
+    let folder = std::path::Path::new("parent/child");
+    let scope = load_defaults(&root, folder).await.unwrap();
+    assert!(scope.missing);
+    assert_eq!(scope.ancestors.len(), 1);
+    assert!(!root.join(folder).join("folder.yml").exists());
+    let saved = create_folder_defaults(
+        root.clone(),
+        folder.into(),
+        vec![edit(
+            &["request", "headers"],
+            Some(json!([{"name":"X-Scope","value":"child"}])),
+        )],
+    )
+    .await
+    .unwrap();
+    assert_eq!(saved.value()["request"]["headers"][0]["value"], "child");
+    let original = fs::read(saved.path()).unwrap();
+    assert!(
+        create_folder_defaults(root.clone(), folder.into(), vec![])
+            .await
+            .is_err()
+    );
+    assert_eq!(fs::read(saved.path()).unwrap(), original);
+    assert!(!root.join("parent/folder.yml").exists());
+    for folder in [
+        "../",
+        "/tmp",
+        ".git",
+        "environments",
+        "node_modules",
+        "missing",
+        "parent/../../other",
+    ] {
+        assert!(
+            load_defaults(&root, std::path::Path::new(folder))
+                .await
+                .is_err(),
+            "{folder}"
+        );
+        assert!(
+            create_folder_defaults(root.clone(), folder.into(), vec![])
+                .await
+                .is_err(),
+            "{folder}"
+        );
+    }
+    #[cfg(unix)]
+    {
+        let outside = temp.path().join("outside");
+        fs::create_dir(&outside).unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("escape")).unwrap();
+        assert!(
+            load_defaults(&root, std::path::Path::new("escape"))
+                .await
+                .is_err()
+        );
+        assert!(
+            create_folder_defaults(root.clone(), "escape".into(), vec![])
+                .await
+                .is_err()
+        );
+        assert!(!outside.join("folder.yml").exists());
+        std::os::unix::fs::symlink(outside.join("absent.yml"), root.join("parent/folder.yml"))
+            .unwrap();
+        assert!(load_defaults(&root, folder).await.is_err());
+    }
+}
 
 #[tokio::test]
 async fn saving_recovered_copies_keeps_full_configuration_and_never_overwrites_files() {

@@ -225,7 +225,11 @@
   const unsavedTabs = $derived(requestTabs.some(item => item.id === activeRequestTab ? !!draft?.edits.length : !!item.draft.edits.length));
   const isEdited = $derived(!!draft?.edits.length);
   let envDraft = $state<Draft | null>(null);
-  const variableContextKey = $derived(`${collection?.root ?? ''}:${selected}:${environment}:${draft?.revision ?? 0}:${envDraft?.revision ?? 0}`);
+  let defaultsVersion = $state(0);
+  let defaultsTarget = $state<{ collection: Collection; folder: string } | null>(null);
+  let DefaultsEditor = $state<typeof import('$lib/features/collections/DefaultsEditor.svelte').default | null>(null);
+  let defaultsEditor = $state<{ requestClose: () => void } | null>(null);
+  const variableContextKey = $derived(`${collection?.root ?? ''}:${selected}:${environment}:${draft?.revision ?? 0}:${envDraft?.revision ?? 0}:${defaultsVersion}`);
   let inherited = $state<VariablePreview[]>([]), loadedContext = $state(''), variableIssue = $state('');
   $effect(() => {
     const key = variableContextKey;
@@ -350,6 +354,7 @@
   onMount(() => {
     if (!isTauri()) return;
     const listener = getCurrentWindow().onCloseRequested(async event => {
+      if (defaultsTarget) { event.preventDefault(); defaultsEditor?.requestClose(); return; }
       if (busy || loading || chunkLoading) { event.preventDefault(); error = 'Wait for the current operation before closing this window.'; return; }
       if (envDraft?.edits.length) { event.preventDefault(); error = 'Save or Reset your environment changes before closing this window.'; return; }
       finishRequestName();
@@ -382,7 +387,7 @@
   async function refreshExternalCollections() {
     if (externalDisposed || closingWindow) return;
     // Defer batches while a user operation or dialog owns the current revisions.
-    if (busy || loading || chunkLoading || creation || deletingRequest || deletingWorkspace || closingRequestTab !== null || environmentOpen || addingEnvironment || requestNameEdit !== null) { externalTimer = setTimeout(() => { void refreshExternalCollections(); }, 500); return; }
+    if (busy || loading || chunkLoading || creation || deletingRequest || deletingWorkspace || closingRequestTab !== null || environmentOpen || addingEnvironment || defaultsTarget || requestNameEdit !== null) { externalTimer = setTimeout(() => { void refreshExternalCollections(); }, 500); return; }
     if (!workspace) return;
     const roots = new Set(pendingExternalRoots); pendingExternalRoots.clear();
     if (!roots.size) return;
@@ -453,13 +458,13 @@
     });
     return recoveryWrite;
   }
-  function canLeave() { if (unsavedTabs || isEdited || envDraft?.edits.length) { error = 'Save or close your unsaved request tabs before switching workspaces or collections.'; return false; } return true; }
+  function canLeave() { if (defaultsTarget || unsavedTabs || isEdited || envDraft?.edits.length) { error = 'Save or close your unsaved editors before switching workspaces or collections.'; return false; } return true; }
   function stashRequestTab() {
     const item = requestTabs.find(item => item.id === activeRequestTab);
     if (item && draft) Object.assign(item, { draft, environment, baseUrl, response, body, offset, decoder: response?.text ? decoder : undefined });
   }
   async function newUntitled() {
-    if (busy || loading || chunkLoading || envDraft?.edits.length) return;
+    if (defaultsTarget || busy || loading || chunkLoading || envDraft?.edits.length) return;
     stashRequestTab();
     draft = untitledDraft(); selected = ''; requestName = 'Untitled'; method = 'GET'; url = '';
     response = null; body = ''; offset = 0; decoder = new TextDecoder(); error = ''; notice = ''; home = false; manageWorkspacesOpen = false; environmentOpen = false; envDraft = null;
@@ -690,6 +695,25 @@
     finally { loading = false; }
   }
   async function clearHistory() { try { await api.clearHistory(); await refreshHistory(); } catch (e) { history.warning = String(e); } }
+
+  async function openDefaults(root: string, folder: string) {
+    if (defaultsTarget || busy || loading || chunkLoading || !canLeaveEnvironment()) return;
+    if (root !== collection?.root && !await chooseCollection(root)) return;
+    if (!collection) return;
+    loading = true; error = '';
+    try {
+      DefaultsEditor ??= (await import('$lib/features/collections/DefaultsEditor.svelte')).default;
+      defaultsTarget = { collection, folder };
+    } catch { error = 'Defaults could not be opened. Please retry.'; }
+    finally { loading = false; }
+  }
+  async function closeDefaults() {
+    if (defaultsTarget) pendingExternalRoots.add(defaultsTarget.collection.root);
+    defaultsTarget = null;
+    clearTimeout(externalTimer);
+    await refreshExternalCollections();
+    await tick(); await restoreTreeFocus(menuInvoker);
+  }
 
   function beginCreate(kind: 'workspace' | 'collection' | 'folder' | 'request', folder = '') {
     if (busy || loading || !canLeave() || (kind !== 'collection' && kind !== 'workspace' && (!collection || collection.readOnly))) return;
@@ -1041,7 +1065,7 @@
   }
 
   async function send() {
-    if (!draft || busy || loading || chunkLoading || environmentOpen || addingEnvironment || creation || deletingWorkspace || deletingRequest) return;
+    if (!draft || defaultsTarget || busy || loading || chunkLoading || environmentOpen || addingEnvironment || creation || deletingWorkspace || deletingRequest) return;
     if (activeExternalChange) { error = activeExternalChange; return; }
     busy = true; error = ''; response = null; body = ''; offset = 0; decoder = new TextDecoder();
     stashRequestTab();
@@ -1068,7 +1092,7 @@
   }
 
   async function cancel() { try { await api.cancel(); } catch (e) { error = String(e); } }
-  function shortcut(e: KeyboardEvent) { if (creation || addingEnvironment || deletingWorkspace || deletingRequest || manageWorkspacesOpen || closingRequestTab !== null) return; if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); void send(); } if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); if (environmentOpen) void saveEnvironment(); else void saveRequest(); } }
+  function shortcut(e: KeyboardEvent) { if (defaultsTarget || creation || addingEnvironment || deletingWorkspace || deletingRequest || manageWorkspacesOpen || closingRequestTab !== null) return; if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); void send(); } if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); if (environmentOpen) void saveEnvironment(); else void saveRequest(); } }
   const size = (bytes: number) => bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
 </script>
 
@@ -1098,8 +1122,9 @@
       {#if workspace?.collections.length}
         <ContextMenu.Root>
           <CollectionTree bind:this={treeView} collections={collectionTrees} summaries={requestSummaries} {summariesPending} onvisible={visibleRequests} selectedRoot={!home ? collection?.root ?? '' : ''} selectedPath={!home ? selected : ''} activeSummary={draft ? { name: requestName, method: method.toUpperCase() } : null} locked={busy || loading} onchoose={chooseCollection} oncreate={createIn} oncontextmenu={treeMenuTarget} onactions={showTreeMenu} />
-          <ContextMenu.Content class="tree-menu" onCloseAutoFocus={(event) => { event.preventDefault(); if (!creation && !deletingRequest) void restoreTreeFocus(menuInvoker); }}>
+          <ContextMenu.Content class="tree-menu" onCloseAutoFocus={(event) => { event.preventDefault(); if (!defaultsTarget && !creation && !deletingRequest) void restoreTreeFocus(menuInvoker); }}>
             {#if menuCollection || menuFolder}
+              <ContextMenu.Item class="tree-menu-item" onSelect={() => openDefaults(menuRoot, menuPath)}><Settings2 size={14} aria-hidden="true" />Edit defaults</ContextMenu.Item>
               <ContextMenu.Item class="tree-menu-item" disabled={menuCannotCreate} onSelect={() => createIn(menuRoot, 'request', menuPath)}><Plus size={14} aria-hidden="true" />New request</ContextMenu.Item>
               <ContextMenu.Item class="tree-menu-item" disabled={menuCannotCreate} onSelect={() => createIn(menuRoot, 'folder', menuPath)}><FolderPlus size={14} aria-hidden="true" />New folder</ContextMenu.Item>
               {#if menuFolder}<ContextMenu.Item class="tree-menu-item" disabled={menuCannotCreate} onSelect={() => beginFolderRename(menuRoot, menuPath)}><Pencil size={14} aria-hidden="true" />Rename</ContextMenu.Item>{/if}
@@ -1212,6 +1237,8 @@
     </div>
   </footer>
 </div>
+
+{#if defaultsTarget && DefaultsEditor}<DefaultsEditor bind:this={defaultsEditor} collection={defaultsTarget.collection} folder={defaultsTarget.folder} onclose={closeDefaults} onsaved={() => defaultsVersion++} />{/if}
 
 {#if creation}
   <Dialog.Root open={true} onOpenChange={(open) => { if (!open && !loading) cancelCreation(); }}><Dialog.Content class="modal creation-modal shadcn-modal motion-reduce:animate-none" showCloseButton={false} aria-label={titles[creation]} onInteractOutside={(event) => event.preventDefault()} onEscapeKeydown={(event) => { if (loading) event.preventDefault(); }} onOpenAutoFocus={(event) => { event.preventDefault(); document.querySelector<HTMLElement>('.shadcn-modal [autofocus]')?.focus(); }} onCloseAutoFocus={(event) => { event.preventDefault(); if (manageWorkspacesOpen) restoreWorkspaceManagerFocus(); else void restoreTreeFocus(creationReturnFocus); }}>

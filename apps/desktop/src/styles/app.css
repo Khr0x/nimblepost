@@ -822,3 +822,10 @@ main.environment-page { padding:0; }
 .environment-editor-empty h2 { margin:0; color:var(--text); font-size:16px; }
 .environment-editor-empty p { margin:0; font-size:12px; }
 .environment-manager-note { margin:12px 0; font-size:12px; color:var(--text-secondary); }
+.defaults-modal { max-height:85dvh; overflow:auto; }
+.defaults-modal .config-editor { min-height:0; }
+.defaults-modal p { color:var(--text-secondary); font-size:12px; line-height:1.6; }
+.defaults-source-files { padding-left:18px; list-style:disc; font-size:12px; }
+.defaults-sources { width:100%; border-collapse:collapse; font-size:12px; }
+.defaults-sources th,.defaults-sources td { padding:6px; border-bottom:1px solid var(--border); text-align:left; overflow-wrap:anywhere; }
+.defaults-close-confirm { padding-top:12px; border-top:1px solid var(--border); }

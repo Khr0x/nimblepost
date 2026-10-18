@@ -411,6 +411,80 @@ pub async fn read_within(root: &Path, relative: &Path) -> Result<Document> {
     Document::read(resolved).await
 }
 
+/// Editable scope and its ancestors; opening a folder without metadata never writes it.
+pub struct DefaultsDocument {
+    pub document: Document,
+    pub ancestors: Vec<Document>,
+    pub missing: bool,
+}
+
+pub async fn load_defaults(root: &Path, folder: &Path) -> Result<DefaultsDocument> {
+    let root = tokio::fs::canonicalize(root)
+        .await
+        .map_err(|e| Error::io(root, e))?;
+    if folder.components().count() > 64
+        || folder.components().any(|part| {
+            !matches!(part, Component::Normal(_))
+                || matches!(
+                    part.as_os_str().to_str(),
+                    Some(".git" | "node_modules" | "environments")
+                )
+        })
+    {
+        return Err(Error::config(
+            folder,
+            "folder",
+            "Carpeta relativa no autorizada",
+        ));
+    }
+    let directory = tokio::fs::canonicalize(root.join(folder))
+        .await
+        .map_err(|e| Error::io(root.join(folder), e))?;
+    if !directory.starts_with(&root) || !directory.is_dir() {
+        return Err(Error::config(
+            folder,
+            "folder",
+            "La carpeta sale de la raíz abierta",
+        ));
+    }
+    let collection = read_within(&root, Path::new("opencollection.yml")).await?;
+    if collection.value["opencollection"] != "1.0.0"
+        || collection.value["bundled"] == true
+        || nonempty(&collection.value["items"])
+        || nonempty(&collection.value["config"]["environments"])
+    {
+        return Err(collection.error("opencollection", "Se requieren defaults filesystem 1.0.0"));
+    }
+    let mut documents = vec![collection];
+    let mut relative = PathBuf::new();
+    let mut missing = false;
+    for part in folder.components() {
+        relative.push(part);
+        let path = relative.join("folder.yml");
+        match tokio::fs::symlink_metadata(root.join(&path)).await {
+            Ok(_) => {
+                let doc = read_within(&root, &path).await?;
+                documents.push(doc);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                if relative == folder {
+                    missing = true;
+                    documents.push(Document::from_yaml(
+                        directory.join("folder.yml"),
+                        serde_json::json!({"info": {"name": part.as_os_str().to_string_lossy(), "type": "folder"}}).to_string(),
+                    )?);
+                }
+            }
+            Err(e) => return Err(Error::io(root.join(path), e)),
+        }
+    }
+    Ok(DefaultsDocument {
+        document: documents.pop().expect("collection is always present"),
+        ancestors: documents,
+        missing,
+    })
+}
+
 pub async fn load_environment(root: &Path, name: &str) -> Result<Document> {
     let dir = root.join("environments");
     let mut entries = tokio::fs::read_dir(&dir)

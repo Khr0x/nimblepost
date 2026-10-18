@@ -76,6 +76,8 @@ pub fn run() {
             commands::read_response,
             commands::release_response,
             commands::save_document,
+            commands::read_defaults,
+            commands::create_folder_defaults,
             commands::read_environment,
             commands::read_variable_context,
             commands::create_environment,

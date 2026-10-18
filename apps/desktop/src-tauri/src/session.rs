@@ -5,10 +5,10 @@ use base64::Engine;
 use nimblepost_core::{
     CancellationToken, CollectionIndex, Document, DocumentKind, ExecutionContext, FieldEdit,
     History, HistoryEntry, HttpResponse, LoadedRequest, VariablePreview, collection_index,
-    create_collection, create_environment, create_folder, create_request_from_draft,
-    create_request_with_edits, delete_request, duplicate_request, execute, inherited_variables,
-    load_environment, load_request, prepare, read_within, rename_folder, rename_request,
-    save_document,
+    create_collection, create_environment, create_folder, create_folder_defaults,
+    create_request_from_draft, create_request_with_edits, delete_request, duplicate_request,
+    execute, inherited_variables, load_defaults, load_environment, load_request, prepare,
+    read_within, rename_folder, rename_request, save_document,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -93,6 +93,28 @@ pub struct RequestView {
 pub struct RequestSummary {
     name: String,
     method: String,
+}
+
+#[derive(Serialize)]
+pub struct DefaultsRow {
+    name: String,
+    disabled: bool,
+}
+
+#[derive(Serialize)]
+pub struct DefaultsSource {
+    path: String,
+    headers: Vec<DefaultsRow>,
+    variables: Vec<DefaultsRow>,
+    auth: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct DefaultsView {
+    path: String,
+    document: RequestView,
+    ancestors: Vec<DefaultsSource>,
+    missing: bool,
 }
 
 #[derive(Deserialize, Default)]
@@ -992,6 +1014,88 @@ impl Session {
             .map_err(|e| e.to_string())?;
         inherited_variables(&loaded).map_err(|e| e.to_string())
     }
+    pub async fn read_defaults(&self, folder: &Path) -> Result<DefaultsView, String> {
+        let _operation = self
+            .operation
+            .try_lock()
+            .map_err(|_| "Another operation is running")?;
+        let root = self.root()?;
+        let scope = load_defaults(&root, folder)
+            .await
+            .map_err(|e| e.to_string())?;
+        let relative = |doc: &Document| {
+            doc.path()
+                .strip_prefix(&root)
+                .unwrap()
+                .to_string_lossy()
+                .into_owned()
+        };
+        let path = relative(&scope.document);
+        let ancestors = scope
+            .ancestors
+            .iter()
+            .map(|doc| {
+                let defaults = &doc.value()["request"];
+                let rows = |key: &str| {
+                    defaults[key]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .map(|row| DefaultsRow {
+                            name: row["name"].as_str().unwrap_or_default().into(),
+                            disabled: row["disabled"] == true,
+                        })
+                        .collect()
+                };
+                DefaultsSource {
+                    path: relative(doc),
+                    headers: rows("headers"),
+                    variables: rows("variables"),
+                    auth: defaults["auth"]
+                        .as_str()
+                        .or(defaults["auth"]["type"].as_str())
+                        .map(str::to_owned),
+                }
+            })
+            .collect();
+        let kind = if folder.as_os_str().is_empty() {
+            DocumentKind::Collection
+        } else {
+            DocumentKind::Folder
+        };
+        let document = if scope.missing {
+            Self::request_view(kind, &scope.document, 0)
+        } else {
+            self.snapshot(kind, scope.document)
+        };
+        Ok(DefaultsView {
+            path,
+            document,
+            ancestors,
+            missing: scope.missing,
+        })
+    }
+
+    pub async fn create_folder_defaults(
+        &self,
+        folder: PathBuf,
+        edits: Vec<FieldEdit>,
+    ) -> Result<RequestView, String> {
+        let _operation = self
+            .operation
+            .try_lock()
+            .map_err(|_| "Another operation is running")?;
+        if self.inner.lock().unwrap().read_only {
+            return Err(
+                "Included examples are read-only. Open a collection folder to save changes".into(),
+            );
+        }
+        let document = create_folder_defaults(self.root()?, folder, edits)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(self.snapshot(DocumentKind::Folder, document))
+    }
+
     pub async fn create_environment(&self, name: String) -> Result<RequestView, String> {
         let _operation = self
             .operation

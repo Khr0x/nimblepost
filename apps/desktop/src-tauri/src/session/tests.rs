@@ -9,6 +9,145 @@ fn example() -> PathBuf {
 }
 
 #[tokio::test]
+async fn defaults_editor_revisions_creation_privacy_and_runtime_inheritance() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = create_collection(dir.path().into(), "API".into(), "api".into())
+        .await
+        .unwrap();
+    std::fs::write(root.join("opencollection.yml"), "opencollection: 1.0.0\ninfo: {name: API}\nrequest:\n  headers: [{name: X-Scope, value: collection-private-value}]\n  auth: {type: bearer, token: '{{token}}'}\n  variables: [{name: token, value: private-config-token}]\n").unwrap();
+    std::fs::create_dir(root.join("users")).unwrap();
+    let request = create_request_with_edits(
+        root.clone(),
+        "users".into(),
+        "GET users".into(),
+        "list".into(),
+        "GET".into(),
+        "{{baseUrl}}/users".into(),
+        vec![],
+    )
+    .await
+    .unwrap();
+    let session = Session::default();
+    session.open(root.clone()).await.unwrap();
+    let scope = session.read_defaults(Path::new("users")).await.unwrap();
+    assert!(scope.missing);
+    assert_eq!(scope.document.revision, 0);
+    let ancestors = serde_json::to_string(&scope.ancestors).unwrap();
+    assert!(ancestors.contains("opencollection.yml") && ancestors.contains("X-Scope"));
+    assert!(
+        !ancestors.contains("collection-private-value")
+            && !ancestors.contains("private-config-token")
+    );
+    assert!(!root.join("users/folder.yml").exists());
+    let view = session
+        .create_folder_defaults(
+            "users".into(),
+            vec![FieldEdit {
+                path: vec!["request".into(), "headers".into()],
+                value: Some(serde_json::json!([{"name":"X-Scope","value":"folder"}])),
+            }],
+        )
+        .await
+        .unwrap();
+    assert!(view.revision > 0);
+    assert!(
+        session
+            .create_folder_defaults("users".into(), vec![])
+            .await
+            .is_err()
+    );
+    let saved = session
+        .save(SaveInput {
+            revision: view.revision,
+            edits: vec![FieldEdit {
+                path: vec!["request".into(), "variables".into()],
+                value: Some(serde_json::json!([{"name":"token","value":"folder-token"}])),
+            }],
+        })
+        .await
+        .unwrap();
+    let context = session
+        .read_variable_context(Some("users/list.yml"), None)
+        .await
+        .unwrap();
+    assert!(context.iter().any(|row| row.name == "token"
+        && row.value.as_deref() == Some("folder-token")
+        && row.scope == "folder"));
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut bytes = [0; 4096];
+        let size = socket.read(&mut bytes).await.unwrap();
+        let request = String::from_utf8_lossy(&bytes[..size]);
+        assert!(request.contains("x-scope: folder"));
+        assert!(request.contains("authorization: Bearer folder-token"));
+        socket
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK")
+            .await
+            .unwrap();
+    });
+    session
+        .send(SendInput {
+            path: "users/list.yml".into(),
+            method: "GET".into(),
+            url: "{{baseUrl}}/users".into(),
+            base_url: address,
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    server.await.unwrap();
+    let scope = session.read_defaults(Path::new("users")).await.unwrap();
+    assert!(!scope.missing);
+    std::fs::write(root.join("users/folder.yml"), "# external edit\n").unwrap();
+    assert!(
+        session
+            .save(SaveInput {
+                revision: scope.document.revision,
+                edits: vec![]
+            })
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("users/folder.yml")).unwrap(),
+        "# external edit\n"
+    );
+    assert!(
+        session
+            .save(SaveInput {
+                revision: saved.revision,
+                edits: vec![]
+            })
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        std::fs::read_to_string(request.path()).unwrap(),
+        request.original()
+    );
+    session.open_example(example()).await.unwrap();
+    let readonly = session.read_defaults(Path::new("")).await.unwrap();
+    assert!(
+        session
+            .save(SaveInput {
+                revision: readonly.document.revision,
+                edits: vec![]
+            })
+            .await
+            .is_err()
+    );
+    assert!(
+        session
+            .create_folder_defaults("users".into(), vec![])
+            .await
+            .is_err()
+    );
+    assert!(session.read_defaults(Path::new("../")).await.is_err());
+}
+
+#[tokio::test]
 async fn variable_context_uses_inherited_scopes_without_secrets_or_snapshot_changes() {
     let directory = tempfile::tempdir().unwrap();
     let session = Session::default();

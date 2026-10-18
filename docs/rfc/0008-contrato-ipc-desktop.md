@@ -41,6 +41,8 @@ Los nombres siguientes son literales del registro Tauri; no hay comandos Git/imp
 | `read_response` | id, offset | Base64 de hasta 64 KiB originales |
 | `release_response` | id | void |
 | `save_document` | input: SaveInput | RequestView con revisión nueva |
+| `read_defaults` (NP-014) | folder (vacío = colección) | DefaultsView |
+| `create_folder_defaults` (NP-014) | folder, edits | RequestView de metadata nueva; readonly/colisión bloqueados |
 | `read_environment` | name | RequestView |
 | `read_variable_context` | path nullable, environment nullable | VariablePreview[] |
 | `create_environment` | name | RequestView |
@@ -48,6 +50,13 @@ Los nombres siguientes son literales del registro Tauri; no hay comandos Git/imp
 | `clear_history` | — | void |
 
 ## DTOs y estados
+
+NP-014 amplía el inventario a 34 comandos. `DefaultsView { path, document,
+ancestors, missing }` usa RequestView para el documento del scope. Si falta
+folder.yml, document.revision = 0 y no se registra snapshot hasta crear el archivo.
+Cada ancestro contiene path, headers/variables [{name,disabled}] y auth (tipo o
+inherit/null), sin valores. Existentes se guardan con SaveInput sin cambiar su
+contrato de revisión. Ver [defaults](../defaults-editor.md).
 
 - `CollectionView` (`Collection` en TS): name/root, rutas requests/folders,
   environments, readOnly y warning. `WorkspaceView`: workspaces, activeWorkspaceId,

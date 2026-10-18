@@ -16,6 +16,7 @@ de validación del cierre ALPHA (C0).
 | [RFC-0009 — CLI](0009-contrato-cli.md) | Una petición por llamada, implementada |
 | [RFC-0010 — Rendimiento](0010-presupuestos-rendimiento.md) | Presupuestos y protocolos; aceptación limitada de NP-013 |
 | [Importaciones](../import-contract.md) | Contrato objetivo común; NP-019/020/021 pendientes |
+| [Editor de defaults](../defaults-editor.md) | NP-014: edición de colección/carpeta y dos comandos IPC adicionales |
 
 Cada cambio de comportamiento debe actualizar el contrato y sus consumidores
 en la misma tarea SDD. Un cambio incompatible necesita decisión, fixtures y
