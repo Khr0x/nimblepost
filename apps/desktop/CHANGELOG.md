@@ -1,5 +1,11 @@
 # @nimblepost/desktop
 
+## 0.2.0-alpha.2
+
+### Minor Changes
+
+- 8354ffd: Edit collection and folder headers, authentication and variables from their actions menu. Show inherited sources and overrides, preserve YAML comments and unrelated fields, and protect unsaved changes and external edits. Create missing folder metadata only on explicit Save, without overwriting existing files.
+
 ## 0.2.0-alpha.1
 
 ### Minor Changes
