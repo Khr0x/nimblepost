@@ -220,6 +220,9 @@ Include a Changeset for user-facing behavior changes; documentation-only
 changes do not need one. See the [release guide](.changeset/README.md).
 Contributions are accepted under the project's Apache-2.0 license.
 
+For security vulnerabilities, follow the [security policy](SECURITY.md) and
+report privately rather than opening a public issue.
+
 ## macOS ALPHA releases
 
 Releases use Changesets. Run `npm run changeset` with a user-facing change and

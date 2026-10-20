@@ -35,10 +35,10 @@ jobs:
             responses:3|responses:1|startup:5|response-diagnostics:*|response-profile:*|response-ui-profile:*) ;;
             *) echo 'Use responses with 3 or 1 launches; startup still requires 5.'; exit 1 ;;
           esac
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: '24'
           cache: npm
@@ -48,7 +48,7 @@ jobs:
           rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev xvfb dbus-x11 xclip xdotool
-      - uses: actions/cache@v4
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             ~/.cargo/registry
@@ -131,7 +131,7 @@ jobs:
             --out reports/native-performance/acceptance-evaluation.json
       - name: Preserve complete or partial evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: native-performance-linux-${{ github.sha }}
           path: reports/native-performance/
