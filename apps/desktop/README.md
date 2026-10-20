@@ -1,11 +1,9 @@
 # Desktop: Tauri 2 + Svelte 5
 
 MVP 0 HTTP funcional en desarrollo ALPHA, con workspaces locales, múltiples
-colecciones y edición en tabs. NP-014 añade defaults de colección/carpeta;
+colecciones y edición en tabs. Incluye defaults de colección/carpeta;
 la versión vigente está en [package.json](package.json).
 
-El mapa de carpetas y sus responsabilidades está en
-[RFC-0002 — Organización del repositorio](../../docs/rfc/0002-arquitectura-inicial.md#organización-del-repositorio--2026-10-01).
 La UI se organiza en `src/lib/features`, el puente IPC en `src/lib/desktop`,
 los componentes compartidos en `src/lib/components` y los estilos en `src/styles`.
 Las pruebas locales están en `tests/unit`.
@@ -329,30 +327,23 @@ Esta optimización limita líneas, no caracteres de una única línea muy larga.
 
 ## Rendimiento y distribución nativa
 
-El [RFC-0010](../../docs/rfc/0010-presupuestos-rendimiento.md) conserva el protocolo
-v1 como referencia histórica. NP-011 restablece el
-[tooling Linux v2](../../docs/native-performance.md) para arranque habitual/RSS,
-con perfiles aislados, reportes y comparación. No acredita cold start ni los
-objetivos absolutos, y no admite comparar sus series con el protocolo anterior.
+Los scripts `scripts/native-performance.mjs` y `scripts/performance-report.mjs`
+en la raíz permiten medir y comparar arranque habitual/RSS en Linux, con perfiles
+locales aislados. Estas mediciones no acreditan cold start ni objetivos absolutos.
 
 `tauri.windows.conf.json` configura NSIS y `tauri.linux.conf.json` configura
-Debian. El workflow manual `Native distribution validation` tiene runners
-Windows 2025/Ubuntu 24.04 x64 para compilar, instalar y
-abrir paquetes y ejecutar las pruebas Rust. Los resultados de estos runners x64
-siguen pendientes hasta ejecutar los jobs del commit correspondiente. Los artefactos de CI no cambian
-el canal de releases públicas, actualmente macOS ALPHA.
+Debian. El workflow manual `Native distribution validation` compila, instala,
+abre y desinstala paquetes en Windows/Linux x64. El smoke interactivo ampliado
+sigue pendiente; los artefactos de CI no cambian el canal público macOS ALPHA.
 
-La [guía de aceptación Windows/Linux x64](../../docs/native-validation.md) separa
-los checks automáticos de instalación/arranque/desinstalación del smoke
-interactivo pendiente y describe la evidencia necesaria para cerrar NP-010.
+El workflow manual `Native performance tooling` permite ejercitar respuestas
+grandes, portapapeles, cancelación, retención e interacción en Linux. Las
+validaciones nativas y de rendimiento son independientes del CI habitual.
 
-La [validación manual de respuestas NP-013](../../docs/native-responses.md)
-ejercita HTTP grande, portapapeles, cancelación, retención e interacción en Linux.
 ## Defaults de colección y carpeta
 
 **Edit defaults** en el menú de colección/carpeta edita headers/auth/variables
 del scope con procedencia. Save/Discard es explícito; abrir no escribe, y
 folder.yml ausente se crea exclusivamente al guardar. Conflictos y readonly
 bloquean overwrite; el diálogo protege cambios y teclado/foco. Los borradores de
-defaults no se incluyen en recovery de requests. Ver el
-[contrato y límites](../../docs/defaults-editor.md).
+defaults no se incluyen en recovery de requests.

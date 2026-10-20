@@ -13,7 +13,7 @@ publicado por OpenCollection. No es un esquema propietario de NimblePost.
   Autor declarado: Bruno Software Inc. El snapshot no incluye un archivo LICENSE
   ni un aviso de copyright en el esquema. Véase [la atribución](../../../THIRD_PARTY_NOTICES.md).
 
-Cambiar el esquema requiere revisar el RFC-0003, actualizar revisión y hash, y
+Cambiar el esquema requiere revisar la compatibilidad, actualizar revisión y hash, y
 comprobar de nuevo todos los fixtures. El mismo string `1.0.0` puede aparecer en
 revisiones distintas del esquema: por eso también fijamos paquete y commit.
 

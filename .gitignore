@@ -1,5 +1,17 @@
-# Local planning documents
+# Local planning and agent documents (kept outside the public source tree)
+/docs/
 /roadmap/
+/tasks/
+/fuentes/
+/templates/
+/Inicio.md
+/Roadmap.md
+/ROADMAP.md
+/roadmap.md
+/Backlog.md
+/BACKLOG.md
+/backlog.md
+AGENTS.md
 
 # Dependencies and generated output
 node_modules/

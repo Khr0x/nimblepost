@@ -13,6 +13,7 @@
 
 <p>
   <a href="https://github.com/Khr0x/nimblepost/actions/workflows/ci.yml"><img src="https://github.com/Khr0x/nimblepost/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square" alt="License: Apache 2.0"></a>
   <img src="https://img.shields.io/badge/status-alpha-10b981?style=flat-square&amp;labelColor=27272a" alt="Status: alpha">
   <img src="https://img.shields.io/badge/Tauri-2-27272a?style=flat-square" alt="Tauri 2">
   <img src="https://img.shields.io/badge/Svelte-5-27272a?style=flat-square" alt="Svelte 5">
@@ -23,18 +24,24 @@
   <a href="#what-you-can-do">Features</a> ·
   <a href="#run-the-desktop-app">Getting started</a> ·
   <a href="#try-the-included-example">Try it</a> ·
+  <a href="#contributing">Contributing</a> ·
+  <a href="#license">License</a> ·
   <a href="https://github.com/Khr0x/nimblepost/issues">Report an issue</a>
 </p>
 
 </div>
 
-NimblePost keeps your collections in your own folders, with a desktop app built
-on Tauri and Svelte and a Rust engine shared by the desktop app and CLI.
+NimblePost is an open-source API client for sending HTTP requests, inspecting
+responses and keeping collections in files you control. The desktop app uses
+Tauri 2 and Svelte 5; a shared Rust engine powers both the app and the CLI.
+Collections are plain OpenCollection YAML, so you can review them in an editor
+and version them with your own Git tools.
 
 **Status: ALPHA.** The HTTP/HTTPS workflow is functional and under active
-development. Windows and Linux x64 CI checks cover production installers and
-native startup; execution on those targets is still pending. See the
-[native distribution checks](apps/desktop/README.md#rendimiento-y-distribución-nativa).
+development. Public installers target macOS. Windows and Linux x64 have
+automated package installation, startup and removal checks; their broader
+interactive acceptance is still incomplete. Performance targets are not
+guarantees. See [current limitations](#current-limitations) before adopting it.
 
 ## What you can do
 
@@ -46,7 +53,7 @@ native startup; execution on those targets is still pending. See the
 - Edit query parameters, headers, variables, environments and JSON/text/XML bodies.
 - Use Basic, Bearer or API Key authentication, including inherited configuration.
 - Edit collection and folder defaults with source information, explicit Save/Discard
-  and protection against external changes. See the [defaults editor](docs/defaults-editor.md).
+  and protection against external changes.
 - Send requests, cancel execution and inspect response status, timing and headers.
 - Read JSON with formatting, syntax highlighting and collapsible objects and
   arrays, or switch to Text, Raw or Hex views.
@@ -71,15 +78,29 @@ request/response bodies. Request tabs and unsaved drafts are restored after
 restarting from a separate local recovery file. Runtime secrets and responses
 are excluded from that backup.
 
+## Install
+
+Download the macOS ALPHA DMG from [GitHub Releases](https://github.com/Khr0x/nimblepost/releases).
+The universal app includes Apple Silicon and Intel builds; execution on real
+Intel hardware has not yet been verified.
+
+The app uses ad-hoc signing and is not notarized with an Apple Developer ID.
+If macOS blocks a download you trust, follow
+[Apple's instructions for opening an app](https://support.apple.com/en-us/102445).
+For other platforms, build from source using the instructions below.
+
 ## Run the desktop app
 
-You need Node.js 24 or later, npm, Rust with Cargo, and the native build
-prerequisites for Tauri 2 on your operating system. On macOS, install Xcode
-Command Line Tools.
+You need Node.js 24 or later, npm, Rust with Cargo, and the
+[native prerequisites for Tauri 2](https://v2.tauri.app/start/prerequisites/)
+on your operating system. On macOS, install Xcode Command Line Tools. CI uses
+Rust 1.96.1; use that toolchain to match its checks.
 
-From the repository root:
+Clone the repository and install its JavaScript dependencies:
 
 ```sh
+git clone https://github.com/Khr0x/nimblepost.git
+cd nimblepost
 npm ci
 npm run desktop:dev
 ```
@@ -119,8 +140,20 @@ cargo run -p nimblepost-cli -- run users/list.yml --collection examples/basic-ht
 ```
 
 The CLI executes one request per invocation and prints the response as JSON.
-Ctrl+C cancels execution. It supports variable overrides and declared secrets
-supplied through explicitly named process environment variables.
+Ctrl+C cancels execution. It supports repeatable `--var NAME=VALUE` overrides
+and declared secrets supplied through `--secret-env NAME=ENV_VAR` without
+putting the secret value in command-line arguments. HTTP 4xx/5xx responses are
+successful executions (exit code 0); load or transport failures return 1,
+invalid arguments return 2, and cancellation returns 130.
+
+To build the CLI binary separately:
+
+```sh
+cargo build -p nimblepost-cli --release --locked
+```
+
+The executable is `target/release/nimblepost` (`nimblepost.exe` on Windows).
+See the [CLI guide](bins/cli/README.md) for standalone requests and secrets.
 
 ## Development checks
 
@@ -128,6 +161,7 @@ supplied through explicitly named process environment variables.
 npm test
 npm run check
 npm run build
+npm run release:check
 cargo test --workspace --locked
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
@@ -140,11 +174,51 @@ GitHub Actions runs these checks on branch pushes and pull requests using Ubuntu
 Node.js 24 and Rust 1.96.1. The workflow can also be started manually from the
 repository's Actions tab.
 
-GraphQL, gRPC, WebSocket, imports, Git integration and collection runners are
-not implemented yet.
+Native package validation and performance workflows run manually from
+GitHub Actions. Passing the regular CI checks alone does not establish native
+package acceptance or performance on every platform.
 
-The [contract index](docs/rfc/README.md) describes the implemented HTTP engine,
-Desktop IPC and CLI, and the agreed boundaries for future Git and imports.
+## Current limitations
+
+- Only the filesystem layout of OpenCollection 1.0.0 and the supported HTTP
+  subset are available; arbitrary collections may contain unsupported fields.
+- Request bodies support JSON, text and XML. Multipart, binary uploads,
+  persistent cookies, OAuth, custom proxies and client certificates are unavailable.
+- Responses are held in memory with a 16 MiB limit. Larger responses fail instead
+  of being silently truncated; streaming to disk is unavailable.
+- Secrets can be supplied for execution in memory; there is no persistent
+  operating-system keychain integration. Literal values saved in requests or
+  drafts remain local file content, so keep credentials in secret variables.
+- There are no importers, integrated Git operations, scripts/assertions,
+  collection runners, GraphQL, gRPC or WebSocket support.
+
+## Repository layout
+
+| Path | Purpose |
+| --- | --- |
+| `apps/desktop` | Svelte UI, Tauri backend and desktop unit tests |
+| `crates/core` | Shared Rust HTTP engine and filesystem storage |
+| `bins/cli` | Command-line adapter for executing a saved request |
+| `examples/basic-http` | Demo API and example collection |
+| `schemas` / `tests` | Pinned OpenCollection schema, fixtures and contract tests |
+| `scripts` / `.github/workflows` | Release tooling, validation and CI |
+
+## Contributing
+
+Bug reports, documentation fixes and focused pull requests are welcome.
+For bugs, include your OS, app version, reproduction steps and expected versus
+actual behavior. Remove credentials and private API data from examples and logs.
+Use [GitHub Issues](https://github.com/Khr0x/nimblepost/issues) to discuss larger
+changes before implementing them.
+
+For a pull request, fork the repository, create a branch and keep the change
+focused. Add tests when behavior changes, run the development checks above and
+explain what changed and how you verified it. Keep the shared execution logic
+in `crates/core` so desktop and CLI behavior stays consistent.
+
+Include a Changeset for user-facing behavior changes; documentation-only
+changes do not need one. See the [release guide](.changeset/README.md).
+Contributions are accepted under the project's Apache-2.0 license.
 
 ## macOS ALPHA releases
 
@@ -167,3 +241,13 @@ Security → Open Anyway**. See [Apple's instructions](https://support.apple.com
 
 For further usage details, see the [desktop guide](apps/desktop/README.md) and
 [CLI guide](bins/cli/README.md).
+
+## License
+
+NimblePost is licensed under the [Apache License 2.0](LICENSE).
+
+See [third-party notices](THIRD_PARTY_NOTICES.md) for vendored material and
+source attribution. Third-party material retains its own licensing, including
+[Inter fonts](apps/desktop/src/assets/fonts/OFL.txt),
+[shadcn-svelte components](apps/desktop/src/lib/components/ui/LICENSE.md) and
+[Bruno test fixtures](tests/fixtures/opencollection/LICENSE.bruno.md).
