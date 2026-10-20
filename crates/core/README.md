@@ -41,7 +41,7 @@ Configuraciones activas aún no soportadas producen error antes de enviar.
 si falta folder.yml. `Document::edited` admite headers/auth/variables de colección
 y carpeta; `create_folder_defaults` crea exclusivamente metadata ausente con
 ediciones validadas. Documentos existentes usan `save_document`; no recrea archivos
-borrados externamente. Ver [editor y contrato](../../docs/defaults-editor.md).
+borrados externamente. Ver el [editor de defaults](../../apps/desktop/README.md#defaults-de-colección-y-carpeta).
 
 ## Ejecutar el ejemplo
 
@@ -100,7 +100,7 @@ respuestas, no como fallos de transporte.
   un temporal y reemplaza un archivo. No-op no modifica mtime. Se serializan los
   escritores del backend; persiste una ventana frente a escritores externos
   entre comprobación final y rename. Los conflictos conservan el temporal si ya
-  se escribió. Ver el [contrato](../../docs/rfc/0003-contrato-opencollection.md).
+  se escribió.
 - `History` ofrece almacenamiento acotado de metadatos; no acepta payloads HTTP,
   URLs ni credenciales. Desktop lo utiliza según su
   [política](../../apps/desktop/README.md#política-de-secretos-e-historial-del-mvp-0).

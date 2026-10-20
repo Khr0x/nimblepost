@@ -1,5 +1,6 @@
 {
   "name": "@nimblepost/desktop",
+  "license": "Apache-2.0",
   "private": true,
   "version": "0.2.0-alpha.2",
   "type": "module",
