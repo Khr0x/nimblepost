@@ -90,6 +90,15 @@ fn basic_yaml(extra: &str) -> String {
     )
 }
 
+const BRUNO_SAVED_SETTINGS: &str = "\
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: true
+";
+
 fn context(url: &str) -> ExecutionContext {
     ExecutionContext {
         overrides: BTreeMap::from([("baseUrl".into(), url.into())]),
@@ -224,11 +233,10 @@ fn unsupported_active_configuration_is_not_silently_ignored() {
     for extra in [
         "runtime:\n  scripts: [{type: before-request, code: 'throw 1'}]",
         "runtime:\n  assertions: [{expression: res.status, operator: equals, value: '200'}]",
-        "settings: {timeout: 0}",
+        "settings: {timeout: -1}",
         "settings: {timeout: 1.5}",
         "settings: {maxRedirects: 21}",
         "settings: {encodeUrl: false}",
-        "settings: {forwardAuthorizationHeader: true}",
         "runtime:\n  variables: [{name: x, value: {type: number, data: '1'}}]",
     ] {
         assert!(
@@ -363,6 +371,32 @@ async fn timeout_applies_before_headers_and_while_reading_body() {
 }
 
 #[tokio::test]
+async fn bruno_zero_timeout_keeps_the_nearest_inherited_timeout() {
+    let temp = TempCollection::new();
+    temp.write(
+        "opencollection.yml",
+        "opencollection: '1.0.0'\ninfo: {name: Test}\nrequest:\n  settings: {http: {timeout: 500}}\n",
+    );
+    temp.write(
+        "users/folder.yml",
+        "info: {name: Users, type: folder}\nrequest:\n  settings: {http: {timeout: 80}}\n",
+    );
+    temp.write("users/list.yml", &basic_yaml(BRUNO_SAVED_SETTINGS));
+    let mock = server(
+        b"HTTP/1.1 200 OK\r\nContent-Length: 6\r\n\r\nx",
+        Stall::Body,
+    )
+    .await;
+    let loaded = load_request(&temp.0, "users/list.yml", None).await.unwrap();
+    let prepared = prepare(&loaded, &context(&mock.url)).unwrap();
+    let cancel = CancellationToken::new();
+    let result = tokio::time::timeout(Duration::from_secs(2), execute(prepared, &cancel))
+        .await
+        .unwrap();
+    assert!(matches!(result, Err(Error::Timeout { timeout_ms: 80 })));
+}
+
+#[tokio::test]
 async fn cancellation_applies_before_headers_and_while_reading_body() {
     for stage in [Stall::Headers, Stall::Body] {
         let during_body = matches!(stage, Stall::Body);
@@ -472,18 +506,33 @@ async fn large_binary_receive_buffers_stay_within_the_body_limit() {
 
 #[tokio::test]
 async fn cross_origin_redirect_returns_3xx_without_sending_credentials_to_target() {
-    let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let destination = format!("http://{}/target", target.local_addr().unwrap());
-    let response =
-        format!("HTTP/1.1 302 Found\r\nLocation: {destination}\r\nContent-Length: 0\r\n\r\n");
-    let mock = server(response.as_bytes(), Stall::None).await;
-    let yaml = "info: {name: Auth, type: http}\nhttp:\n  method: GET\n  url: '{{baseUrl}}/users'\n  auth: {type: apikey, key: X-Credential, value: secret, placement: header}\n";
-    assert_eq!(run(yaml, &mock.url).await.unwrap().status, 302);
-    assert!(
-        tokio::time::timeout(Duration::from_millis(100), target.accept())
+    for settings in ["", BRUNO_SAVED_SETTINGS] {
+        let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let destination = format!("http://{}/target", target.local_addr().unwrap());
+        let response =
+            format!("HTTP/1.1 302 Found\r\nLocation: {destination}\r\nContent-Length: 0\r\n\r\n");
+        let mut mock = server(response.as_bytes(), Stall::None).await;
+        let yaml = basic_yaml(&format!(
+            "  auth: {{type: apikey, key: X-Credential, value: test-only, placement: header}}\n{settings}"
+        ));
+        let result = tokio::time::timeout(Duration::from_secs(2), run(&yaml, &mock.url))
             .await
-            .is_err()
-    );
+            .unwrap()
+            .unwrap();
+        assert_eq!(result.status, 302);
+        assert!(
+            result.headers.iter().any(|header| {
+                header.name == "location" && header.value == destination.as_bytes()
+            })
+        );
+        let sent = String::from_utf8((&mut mock.received).await.unwrap()).unwrap();
+        assert!(sent.contains("x-credential: test-only\r\n"));
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), target.accept())
+                .await
+                .is_err()
+        );
+    }
 }
 
 #[tokio::test]

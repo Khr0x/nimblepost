@@ -67,6 +67,7 @@ and base64 output for binary bodies.
 
 The end-to-end timeout covers connection, redirects, headers, and body reads.
 It defaults to 30,000 ms and accepts a positive `settings.timeout` override.
+`timeout: 0` uses the nearest inherited timeout or the default.
 A cancelled `CancellationToken` prevents the request from starting. Cancelling
 during execution drops the HTTP future. Server-side effects may already have
 occurred.
@@ -92,9 +93,10 @@ are valid responses.
 - The engine disables explicit and system proxies. Persistent cookies, OAuth,
   scripts, assertions, and custom certificates are outside the supported
   subset.
-- The engine follows redirects within the original origin up to `maxRedirects`.
-  A change of origin returns the original 3xx to protect credentials in custom
-  headers and query parameters.
+- The engine follows enabled redirects within the original origin up to
+  `maxRedirects`. A change of origin returns the original 3xx to protect
+  credentials in custom headers and query parameters, even when the YAML
+  contains `forwardAuthorizationHeader: true`.
 - `encodeUrl: false` and manually set framing or transport headers are rejected.
   reqwest handles encoding and sets transport headers such as Host and
   Content-Length.
