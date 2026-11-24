@@ -197,11 +197,10 @@ pub fn prepare(loaded: &LoadedRequest, context: &ExecutionContext) -> Result<Pre
     let timeout_ms = settings
         .get("timeout")
         .map_or(Some(30_000), |v| v.as_u64())
-        .filter(|v| *v > 0)
         .ok_or_else(|| {
             doc.error(
                 "settings.timeout",
-                "El timeout debe ser un entero positivo en ms",
+                "El timeout debe ser 0 o un entero positivo en ms",
             )
         })?;
     let max_redirects = settings
@@ -214,12 +213,6 @@ pub fn prepare(loaded: &LoadedRequest, context: &ExecutionContext) -> Result<Pre
                 "maxRedirects debe ser un entero entre 0 y 20",
             )
         })? as usize;
-    if settings.get("forwardAuthorizationHeader").copied() == Some(&Value::Bool(true)) {
-        return Err(doc.error(
-            "settings.forwardAuthorizationHeader",
-            "Reenviar auth a otro origen no está soportado",
-        ));
-    }
     if settings.get("encodeUrl").copied() == Some(&Value::Bool(false)) {
         return Err(doc.error(
             "settings.encodeUrl",
@@ -281,9 +274,11 @@ fn merge_headers(
 fn merge_settings<'a>(source: &'a Value, settings: &mut BTreeMap<&'a str, &'a Value>) {
     if let Some(object) = source.as_object() {
         for (name, value) in object {
-            if value != "inherit" {
-                settings.insert(name.as_str(), value);
+            // Interpret Bruno's zero as inheritance to keep a finite timeout.
+            if value == "inherit" || (name == "timeout" && value.as_u64() == Some(0)) {
+                continue;
             }
+            settings.insert(name.as_str(), value);
         }
     }
 }
@@ -392,8 +387,8 @@ pub async fn execute(
 }
 
 async fn send(prepared: PreparedRequest) -> Result<HttpResponse> {
-    // Keep all redirects on the original origin. This also protects custom API-key
-    // headers/query credentials which reqwest cannot identify as auth by name.
+    // Keep redirects on the original origin even with forwardAuthorizationHeader enabled.
+    // This also protects credentials in custom headers and query parameters.
     let original = prepared.url.clone();
     let follow = prepared.follow_redirects;
     let limit = prepared.max_redirects;
