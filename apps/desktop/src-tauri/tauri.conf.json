@@ -20,6 +20,12 @@
     "active": true,
     "targets": ["app"],
     "icon": ["icons/32x32.png", "icons/64x64.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.png", "icons/icon.ico"],
-    "resources": {"../../../examples/basic-http/": "examples/basic-http/", "../src/assets/fonts/OFL.txt": "licenses/Inter-OFL.txt"}
+    "resources": {
+      "../../../examples/basic-http/": "examples/basic-http/",
+      "../../../LICENSE": "licenses/LICENSE",
+      "../../../THIRD_PARTY_NOTICES.md": "licenses/THIRD_PARTY_NOTICES.md",
+      "../src/assets/fonts/OFL.txt": "licenses/Inter-OFL.txt",
+      "../src/lib/components/ui/LICENSE.md": "licenses/shadcn-svelte-MIT.txt"
+    }
   }
 }

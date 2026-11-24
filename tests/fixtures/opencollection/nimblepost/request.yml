@@ -1,0 +1,27 @@
+# Preserve this note when the HTTP method changes.
+info:
+  name: Record a delivery
+  type: http
+  seq: 3
+http:
+  method: POST
+  url: "{{inventoryUrl}}/deliveries"
+  headers:
+    - name: X-Warehouse
+      value: 'north'
+  params:
+    - name: receipt
+      value: "full"
+      type: query
+  body:
+    type: json
+    data: |
+      {"sku":"LANTERN-26","units":4}
+runtime:
+  variables: []
+  scripts: []
+  assertions: []
+settings:
+  encodeUrl: true
+  timeout: 4000
+docs: Record a sample delivery for the inventory contract tests.

@@ -38,10 +38,10 @@ Collections are plain OpenCollection YAML, so you can review them in an editor
 and version them with your own Git tools.
 
 **Status: ALPHA.** The HTTP/HTTPS workflow is functional and under active
-development. Public installers target macOS. Windows and Linux x64 have
-automated package installation, startup and removal checks; their broader
-interactive acceptance is still incomplete. Performance targets are not
-guarantees. See [current limitations](#current-limitations) before adopting it.
+development. Public installers target macOS. Windows 11 x64 and Debian 13
+x86_64 passed interactive validation with the packages from
+[run 44791755659](https://github.com/Khr0x/nimblepost/actions/runs/44791755659).
+Performance targets are not guarantees. See [current limitations](#current-limitations).
 
 ## What you can do
 
@@ -205,23 +205,10 @@ package acceptance or performance on every platform.
 
 ## Contributing
 
-Bug reports, documentation fixes and focused pull requests are welcome.
-For bugs, include your OS, app version, reproduction steps and expected versus
-actual behavior. Remove credentials and private API data from examples and logs.
-Use [GitHub Issues](https://github.com/Khr0x/nimblepost/issues) to discuss larger
-changes before implementing them.
-
-For a pull request, fork the repository, create a branch and keep the change
-focused. Add tests when behavior changes, run the development checks above and
-explain what changed and how you verified it. Keep the shared execution logic
-in `crates/core` so desktop and CLI behavior stays consistent.
-
-Include a Changeset for user-facing behavior changes; documentation-only
-changes do not need one. See the [release guide](.changeset/README.md).
-Contributions are accepted under the project's Apache-2.0 license.
-
-For security vulnerabilities, follow the [security policy](SECURITY.md) and
-report privately rather than opening a public issue.
+Bug reports, documentation fixes, and focused pull requests are welcome.
+See the [contributing guide](CONTRIBUTING.md) and
+[code of conduct](CODE_OF_CONDUCT.md). Report vulnerabilities privately using
+the channel in the [security policy](SECURITY.md).
 
 ## macOS ALPHA releases
 
@@ -254,3 +241,5 @@ source attribution. Third-party material retains its own licensing, including
 [Inter fonts](apps/desktop/src/assets/fonts/OFL.txt),
 [shadcn-svelte components](apps/desktop/src/lib/components/ui/LICENSE.md) and
 [Bruno test fixtures](tests/fixtures/opencollection/LICENSE.bruno.md).
+Desktop installers include the project license and third-party notices in
+the app's `licenses/` resources.

@@ -63,6 +63,11 @@ jobs:
           app=target/universal-apple-darwin/release/bundle/macos/NimblePost.app
           codesign --verify --deep --strict --verbose=2 "$app"
           lipo "$app/Contents/MacOS/NimblePost" -verify_arch arm64 x86_64
+          licenses="$app/Contents/Resources/licenses"
+          cmp LICENSE "$licenses/LICENSE"
+          cmp THIRD_PARTY_NOTICES.md "$licenses/THIRD_PARTY_NOTICES.md"
+          cmp apps/desktop/src/assets/fonts/OFL.txt "$licenses/Inter-OFL.txt"
+          cmp apps/desktop/src/lib/components/ui/LICENSE.md "$licenses/shadcn-svelte-MIT.txt"
           for image in target/universal-apple-darwin/release/bundle/dmg/*.dmg; do
             hdiutil verify "$image"
           done

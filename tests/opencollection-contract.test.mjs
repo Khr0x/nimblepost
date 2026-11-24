@@ -42,8 +42,14 @@ for (const fixture of manifest.fixtures) {
   test(`fixture: ${fixture.path}`, () => {
     const url = new URL(fixture.path, fixtureRoot);
     assert.equal(hash(readFileSync(url)), fixture.sha256);
-    assert.match(fixture.commit, /^[a-f0-9]{40}$/);
-    assert.ok(fixture.sourceUrl.includes(fixture.commit));
+    if (fixture.path.startsWith('nimblepost/')) {
+      assert.equal(fixture.license, 'Apache-2.0');
+      assert.equal(Object.hasOwn(fixture, 'sourceUrl'), false);
+      assert.equal(Object.hasOwn(fixture, 'commit'), false);
+    } else {
+      assert.match(fixture.commit, /^[a-f0-9]{40}$/);
+      assert.ok(fixture.sourceUrl.includes(fixture.commit));
+    }
     const validate = validator(fixture.definition);
     assert.equal(validate(readYaml(url)), fixture.schemaValid,
       JSON.stringify(validate.errors, null, 2));

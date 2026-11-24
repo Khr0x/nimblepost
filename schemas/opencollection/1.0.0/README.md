@@ -1,21 +1,23 @@
-# Esquema OpenCollection fijado
+# Pinned OpenCollection schema
 
-`opencollection.schema.json` es una copia íntegra, sin cambios, del esquema
-publicado por OpenCollection. No es un esquema propietario de NimblePost.
+`opencollection.schema.json` is an unchanged copy of the published
+OpenCollection schema.
 
-- Formato: OpenCollection `1.0.0`, JSON Schema draft-07.
-- Paquete fuente: `@opencollection/schema` `0.14.0`.
-- Revisión: `535a5c5803da7a3fe1d575fff23350b4a7c43c6a`.
-- [Origen](https://github.com/opencollection-dev/opencollection/blob/535a5c5803da7a3fe1d575fff23350b4a7c43c6a/packages/oc-schema/src/opencollection.schema.json).
-- Integridad SHA-256: registrada en el [manifest](../../../tests/fixtures/opencollection/manifest.json)
-  y comprobada por `npm test`.
-- Licencia: MIT según el [package.json original](https://github.com/opencollection-dev/opencollection/blob/535a5c5803da7a3fe1d575fff23350b4a7c43c6a/packages/oc-schema/package.json).
-  Autor declarado: Bruno Software Inc. El snapshot no incluye un archivo LICENSE
-  ni un aviso de copyright en el esquema. Véase [la atribución](../../../THIRD_PARTY_NOTICES.md).
+- OpenCollection `1.0.0` uses JSON Schema draft-07.
+- The source package is `@opencollection/schema` `0.14.0`.
+- The pinned revision is `535a5c5803da7a3fe1d575fff23350b4a7c43c6a`.
+- [Upstream source](https://github.com/opencollection-dev/opencollection/blob/535a5c5803da7a3fe1d575fff23350b4a7c43c6a/packages/oc-schema/src/opencollection.schema.json).
+- The [fixture manifest](../../../tests/fixtures/opencollection/manifest.json)
+  records the SHA-256 digest, which `npm test` checks.
+- The [upstream package manifest](https://github.com/opencollection-dev/opencollection/blob/535a5c5803da7a3fe1d575fff23350b4a7c43c6a/packages/oc-schema/package.json)
+  declares the MIT license.
+  The declared author is Bruno Software Inc. The snapshot has no separate
+  license file or copyright header in the schema. See the
+  [third-party notices](../../../THIRD_PARTY_NOTICES.md).
 
-Cambiar el esquema requiere revisar la compatibilidad, actualizar revisión y hash, y
-comprobar de nuevo todos los fixtures. El mismo string `1.0.0` puede aparecer en
-revisiones distintas del esquema: por eso también fijamos paquete y commit.
+When updating the schema, review compatibility, update the revision and hash,
+and rerun every fixture. Different schema revisions can share the same
+`1.0.0` format version, so the package version and commit are pinned as well.
 
-No se obtiene un esquema remoto durante la validación. `npm ci` requiere instalar
-las herramientas de desarrollo; después `npm test` funciona sin red.
+Validation uses the local schema. After `npm ci` installs the development
+dependencies, `npm test` can run offline.
