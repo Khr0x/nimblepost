@@ -1,5 +1,12 @@
 # @nimblepost/desktop
 
+## 0.2.0-alpha.3
+
+### Patch Changes
+
+- 3ca1ece: Run HTTP requests saved by Bruno. A timeout of zero uses the inherited timeout or the 30-second default. Cross-origin redirects stop at the original 3xx to protect credentials.
+- 5c4c2bd: Include NimblePost's Apache 2.0 license and third-party notices in desktop installers.
+
 ## 0.2.0-alpha.2
 
 ### Minor Changes
