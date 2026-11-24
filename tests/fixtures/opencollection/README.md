@@ -1,31 +1,28 @@
-# Fixtures de compatibilidad
+# OpenCollection compatibility fixtures
 
-Este corpus contiene fuentes reales y ejemplos publicados, no solo YAML creado
-por NimblePost. [manifest.json](manifest.json) registra origen, revisión, hash,
-tipo de documento y resultado esperado contra el esquema fijado.
+This corpus combines synthetic Apache-2.0 fixtures authored for NimblePost and
+MIT-licensed upstream Bruno runner fixtures. [manifest.json](manifest.json)
+records hashes, document types, expected schema results, and provenance.
 
-| Grupo | Procedencia | Resultado esperado |
-|---|---|---|
-| `official/collection.yml` | Literal publicado en la sección Collection | Válido |
-| `official/httprequest.yml` | Literal publicado en la sección HttpRequest | Válido |
-| `official/environment.json` | Objeto publicado en Environments, transcrito a JSON | Inválido: `transient` |
-| `bruno/opencollection.yml` | Colección real de tests del runner | Inválido: header `enabled` |
-| `bruno/get-users.yml` | Request real del runner | Válido |
-| `bruno/environments/dev.yml` | Environment real del runner | Válido |
-| `bruno/users/folder.yml` | Folder real del runner | Válido; el tipo se infiere del filename en filesystem |
-| `bruno/users/create-user.yml` | POST real del runner | Inválido: body `mode/json` |
+| Fixture | Origin | Expected result |
+| --- | --- | --- |
+| `nimblepost/collection.yml` | Synthetic warehouse collection | Valid |
+| `nimblepost/request.yml` | Synthetic delivery request with a comment, quoted values, and a multiline JSON body | Valid |
+| `nimblepost/environment-invalid.json` | Synthetic training environment | Invalid due to `transient` |
+| `bruno/opencollection.yml` | Bruno runner tests | Invalid due to header `enabled` |
+| `bruno/get-users.yml` | Bruno runner tests | Valid |
+| `bruno/environments/dev.yml` | Bruno runner tests | Valid |
+| `bruno/users/folder.yml` | Bruno runner tests | Valid. The filesystem layout infers the type from the filename. |
+| `bruno/users/create-user.yml` | Bruno runner tests | Invalid due to body `mode/json` |
 
-Los archivos de Bruno se copian byte a byte. Los ejemplos de Collection y
-HttpRequest se extraen literalmente del código de la documentación. La entrada
-Environment conserva campos y valores del objeto JS publicado; JSON permite
-validarlo también como YAML sin añadir una conversión no documentada.
+The upstream Bruno files are preserved byte for byte. Tests assert the specific
+schema issues listed in the manifest for invalid fixtures. The runnable
+NimblePost reference collection lives separately in
+[examples/basic-http](../../../examples/basic-http/README.md).
 
-Los fixtures incompatibles son resultados **esperados**, no fallos ignorados.
-Las pruebas deben detectar sus campos concretos; no basta cualquier error.
-Los ejemplos propios válidos están separados en `examples/basic-http`.
+Tests validate these files without executing their URLs or scripts. Use
+synthetic data when adding fixtures. Upstream values that resemble API keys
+are examples from the Bruno project.
 
-No se ejecutan las URLs ni los scripts de estos fixtures. Los valores semejantes
-a API keys son ejemplos públicos upstream. No se debe agregar información local.
-
-Licencias y atribución: [THIRD_PARTY_NOTICES](../../../THIRD_PARTY_NOTICES.md)
-y [licencia original de Bruno](LICENSE.bruno.md).
+See the [third-party notices](../../../THIRD_PARTY_NOTICES.md) and
+[original Bruno license](LICENSE.bruno.md) for attribution.

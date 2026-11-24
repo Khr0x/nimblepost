@@ -1,44 +1,46 @@
-# CLI mínima
+# NimblePost CLI
 
-El binario `nimblepost` lee y ejecuta una petición con `nimblepost-core`.
-Desde la raíz del repositorio, inicia la API de ejemplo en otra terminal:
+The `nimblepost` binary reads and runs one request with `nimblepost-core`.
+From the repository root, start the demo API in a separate terminal.
 
 ```sh
 node examples/basic-http/server.mjs
 ```
 
-Ejecuta el mismo YAML que abre Desktop:
+Run the same YAML that Desktop opens.
 
 ```sh
 cargo run -p nimblepost-cli -- run users/list.yml --collection examples/basic-http --env local
 ```
 
-`--var NAME=VALUE` permite overrides transitorios, repetibles con nombres
-distintos. Para un archivo suelto, omite `--collection` y suministra sus variables:
+Use `--var NAME=VALUE` for transient overrides. Repeat it with a distinct name
+for each value. For a standalone request, omit `--collection` and supply its
+variables directly.
 
 ```sh
 cargo run -p nimblepost-cli -- run examples/basic-http/users/list.yml --var baseUrl=http://127.0.0.1:3000 --var pageSize=5
 ```
 
-Sin colección, no se cargan defaults, environments ni variables de carpeta.
-La salida JSON contiene `status`, `headers`, `body`, `bodyEncoding` y `bodyBytes`.
-Los headers conservan duplicados y su valor original en `valueBase64`; un body
-UTF-8 se entrega como texto, y el resto como base64. Los errores van a stderr.
+For standalone requests, the CLI loads no collection defaults, environments, or
+folder variables. JSON output contains `status`, `headers`, `body`,
+`bodyEncoding`, and `bodyBytes`. Duplicate headers are preserved, and each
+header's original value is available as `valueBase64`. The body is text for
+UTF-8 responses and base64 otherwise.
 
-Ctrl+C cancela la petición. Códigos de salida: 0 para una respuesta HTTP
-(incluidos 4xx/5xx), 1 para fallo de carga/preparación/transporte, 2 para argumentos
-inválidos y 130 para cancelación. Timeout y límites son los del
-[núcleo](../../crates/core/README.md).
+Ctrl+C cancels the request. Exit codes are 0 for an HTTP response (including
+4xx and 5xx), 1 for a load, preparation, or network failure, 2 for invalid
+arguments, and 130 for cancellation. See the [core guide](../../crates/core/README.md)
+for timeouts and limits.
 
-Para una declaración `{name: token, secret: true, type: string}` del environment,
-`--secret-env token=NIMBLEPOST_TOKEN` suministra el valor de esa variable de
-proceso en memoria. Debe existir; no se carga el resto del environment ni se
-escribe el secreto en YAML. No se pasa el valor por argumentos de la CLI.
+For an environment declaration such as `{name: token, secret: true, type: string}`,
+`--secret-env token=NIMBLEPOST_TOKEN` supplies the value of the named process
+environment variable in memory. The variable must exist. The CLI reads only
+the environment variables you name and keeps secret values out of both the
+command-line arguments and YAML.
 
 ```sh
 cargo run -p nimblepost-cli -- run users/create.yml --collection examples/basic-http --env local --secret-env token=NIMBLEPOST_TOKEN
 ```
 
-Esta CLI ejecuta una petición por llamada. El historial y el editor/guardado se
-exponen inicialmente desde Desktop; el motor y storage siguen en el core
-compartido. La ejecución de colecciones completas queda pendiente.
+Desktop provides the editor, saving, and history, and shares the same engine
+and storage library. Collection-wide execution is planned.

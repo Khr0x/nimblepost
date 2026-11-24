@@ -1,291 +1,294 @@
-# Desktop: Tauri 2 + Svelte 5
+# Desktop with Tauri 2 and Svelte 5
 
-MVP 0 HTTP funcional en desarrollo ALPHA, con workspaces locales, múltiples
-colecciones y edición en tabs. Incluye defaults de colección/carpeta;
-la versión vigente está en [package.json](package.json).
+The ALPHA desktop client supports HTTP requests, local workspaces, multiple
+collections, tabbed editing, and collection and folder defaults. The current
+version is in [package.json](package.json).
 
-La UI se organiza en `src/lib/features`, el puente IPC en `src/lib/desktop`,
-los componentes compartidos en `src/lib/components` y los estilos en `src/styles`.
-Las pruebas locales están en `tests/unit`.
+The UI lives in `src/lib/features`, the IPC bridge in `src/lib/desktop`,
+shared components in `src/lib/components`, and styles in `src/styles`.
+Local unit tests live in `tests/unit`.
 
-La app inicia en modo oscuro. El selector **Theme** permite cambiar entre Dark
-y Light y conserva la preferencia localmente entre sesiones. La UI usa la paleta
-**Zinc & Emerald**: fondo `#09090b`, tarjetas `#18181b`, bordes `#27272a`,
-acento de marca `#10b981`, texto `#fafafa` y texto secundario `#a1a1aa`.
-El esmeralda identifica las acciones primarias, el foco y los estados exitosos;
-los métodos HTTP conservan sus colores funcionales y los errores usan rojo.
-El tema claro adapta los grises Zinc y el contraste del esmeralda.
-La ventana nativa sigue el tema elegido.
+## Interface and components
 
-Los controles de las peticiones usan **shadcn-svelte**: Button, Input, Textarea,
-Tabs, Select, Checkbox, Table, Breadcrumb, Dialog, Collapsible y ContextMenu.
-Esto incluye Method, Body, Auth, environments, filas de Params/Headers/Variables,
-creación y guardado, cierre de pestañas y JSON plegable. Los iconos usan **Lucide**
-(`@lucide/svelte`). Los componentes viven en `src/lib/components/ui`, con Tailwind CSS 4.
+The app opens in dark mode. The **Theme** selector switches between Dark and
+Light and stores the choice locally across sessions. The **Zinc & Emerald**
+palette uses `#09090b` for the background, `#18181b` for cards, `#27272a`
+for borders, `#10b981` for the accent, `#fafafa` for text, and `#a1a1aa` for
+secondary text. Emerald marks primary actions, focus, and success. HTTP
+methods have their own colors, and errors use red. Light mode adjusts the
+Zinc grays and Emerald contrast. The native window follows the selected theme.
 
-Al añadir controles a las peticiones, reutiliza estos componentes o incorpora el
-correspondiente desde shadcn; evita selects, checkboxes, botones y diálogos nativos
-para esos controles. Conserva los tokens de tema y los colores de métodos HTTP.
-Los selectores del sistema para abrir carpetas siguen siendo nativos.
-Para añadir un componente desde el registro oficial:
+Request controls use **shadcn-svelte** Button, Input, Textarea, Tabs, Select,
+Checkbox, Table, Breadcrumb, Dialog, Collapsible, and ContextMenu. They cover
+the method, body, auth, environments, Params/Headers/Variables rows, request
+creation and saving, tab closing, and foldable JSON. Icons use **Lucide**
+(`@lucide/svelte`). The components live in `src/lib/components/ui` and use
+Tailwind CSS 4.
+
+Reuse the shared components when adding request controls, or add the
+corresponding component from shadcn-svelte. Keep theme tokens and HTTP method
+colors consistent. Folder pickers use the native system dialog. Run the
+command below to add a component from the official registry.
 
 ```sh
 cd apps/desktop
-npx shadcn-svelte@1.7.0 add <componente>
+npx shadcn-svelte@1.7.0 add <component>
 ```
 
-Desde la raíz, con Node 24+/npm, Rust y los requisitos nativos de Tauri instalados:
+## Build and run
+
+Install Node.js 24 or later, npm, Rust, and the
+[native Tauri prerequisites](https://v2.tauri.app/start/prerequisites/).
+Then run the development commands from the repository root.
 
 ```sh
 npm ci
 npm run desktop:dev
 ```
 
-El ejecutable nativo se llama **NimblePost**, tanto en desarrollo como en el
-bundle; el título de la ventana y el nombre de producto usan la misma marca.
-
-En macOS se necesita Xcode/Command Line Tools. Para compilar el ejecutable sin
-generar un instalador:
+The native executable, product, and window title all use the name
+**NimblePost**. On macOS, install the Xcode Command Line Tools. Use the
+following command to compile just the executable.
 
 ```sh
 npm run desktop:build
 ```
 
-El flujo desde cero es **New collection → nombre y carpeta → elegir ubicación →
-New request → nombre → completar URL → Send**. La colección se crea en una carpeta
-nueva dentro de la ubicación elegida; la petición se guarda en su raíz como `.yml`
-y se abre automáticamente. En **New request** solo el nombre es obligatorio;
-el método usa GET por defecto, la URL puede completarse después y el archivo se
-deriva del nombre. La carpeta destino es la seleccionada en el árbol, sin un
-selector adicional. Al crear una colección o carpeta, el nombre de directorio
-se propone a partir del nombre visible y puede editarse. No se sobrescriben
-destinos existentes; los ejemplos incluidos siguen siendo de solo lectura. Las nuevas peticiones también
-admiten URLs con variables como `{{baseUrl}}/users`.
+## Collections, requests, and workspaces
 
-También puedes usar **Open collection → seleccionar YAML → Send → inspeccionar
-Body/Headers**. El selector nativo abre la carpeta que contiene `opencollection.yml`.
-El árbol se indexa en Rust; las peticiones se leen al seleccionarlas.
+Choose **New collection**, name it, and select its location. Choose
+**New request** in that collection, enter a name, add a URL, and click
+**Send**. The app creates a new directory under the location you select
+and opens the new request. A new request requires only a name, defaults to
+GET, and derives its `.yml` filename from its name. You can add the URL
+later. The selected tree folder determines the destination. Directory names
+for collections and folders are suggested from their display names and
+can be edited. Existing destinations are protected. Bundled examples are
+read-only. Request URLs may contain variables such as `{{baseUrl}}/users`.
 
-El selector **Workspace** del navbar permite crear y cambiar espacios locales.
-El espacio predeterminado es **My Workspace**; el botón de inicio vuelve a la
-vista inicial y exige guardar o descartar cambios pendientes.
-El menú del selector reúne la lista de workspaces, **Create workspace** y
-**Manage workspaces**. El activo se identifica con un check y el acento esmeralda.
-**Manage workspaces** abre una vista en el área principal con acciones de
-renombrar y eliminar para cada espacio, incluido uno inactivo. Su módulo se carga
-al abrirlo y se reutiliza después; un fallo conserva el editor y su borrador.
-**Back to workspace**
-regresa al editor conservando las pestañas y los cambios pendientes.
-Renombrar conserva la selección, los archivos y la respuesta del editor.
-Eliminar pide confirmación y quita solo el registro y sus referencias. Si era
-el workspace activo, vuelve al predeterminado (conservando su nombre si lo
-renombraste); eliminar uno inactivo conserva la selección actual. Si ya
-no existe, se crea un **My Workspace** vacío. Eliminar el último workspace
-siempre deja ese espacio vacío disponible.
+Use **Open collection** to select the folder containing `opencollection.yml`.
+Open a request, click **Send**, and inspect **Body** or **Headers**.
+Rust indexes the tree and reads request files as you select them.
 
-Cada workspace conserva varias colecciones, con árboles independientes y una
-colección activa para editar y ejecutar. **New collection** y **Open collection**
-añaden la carpeta al workspace actual; abrir la misma carpeta no duplica su
-referencia. La opción **Remove** del menú de una colección solo quita su referencia
-del workspace, sin borrar archivos. Una carpeta movida o inaccesible conserva su referencia y
-muestra un aviso para poder quitarla y abrir su nueva ubicación.
+Use the **Workspace** menu in the navigation bar to switch between local
+workspaces or choose **Create workspace** or **Manage workspaces**.
+**My Workspace** is the default. A check and the Emerald accent identify
+the active workspace. Home returns to the start page after you save or
+discard pending edits.
 
-Los nombres, referencias de carpetas, acceso de solo lectura y selección activa
-se restauran al iniciar desde `workspaces.json` en los datos locales de Tauri.
-El formato actual es versión 2 y carga los registros de versión 1; esta
-migración conserva las referencias y actualiza la etiqueta original del workspace.
-Este archivo versionado se escribe mediante un temporal con permisos 0600 en
-Unix, fuera de las colecciones. No guarda peticiones, respuestas, secretos ni
-borradores. Un archivo corrupto o cambiado externamente se conserva y bloquea
-las escrituras de referencias. Se presupone una instancia de la app escribiendo
-este registro. No hay variables de workspace ni sincronización entre equipos.
+**Manage workspaces** opens in the main area and lets you rename or delete
+active and inactive workspaces. Its module loads on first use and is
+reused. If it fails to load, the editor and drafts stay available.
+**Back to workspace** returns to the editor with the tabs and pending
+edits intact. Renaming a workspace preserves its selection, files, and
+editor response. Deleting a workspace asks for confirmation and removes its
+record and references. Deleting the active workspace returns to the default
+one, including any new name you gave it. Deleting an inactive workspace
+keeps the current selection. The app creates an empty **My Workspace** if
+the default is missing, including after you delete the last workspace.
 
-Para probar el ejemplo incluido, inicia `node examples/basic-http/server.mjs`
-desde la raíz y pulsa **Try example**. Se seleccionan `users/list.yml` y el
-environment `local`. La misma petición puede ejecutarse con la
-[CLI](../../bins/cli/README.md).
+Each workspace holds several independent collection trees and one active
+collection for editing and sending. **New collection** and **Open collection**
+add to the current workspace. Opening the same folder again reuses its
+reference. **Remove** removes a reference from the workspace and keeps
+the files. A reference to a moved or inaccessible folder remains visible
+with a warning so you can remove it and open the new location.
 
-El botón **+** del workbench crea un request **Untitled** en memoria. Su primer
-**Save** pide nombre, colección y carpeta; las peticiones ya guardadas usan su
-archivo actual. El nombre también se edita con doble clic en el breadcrumb.
-Los tabs tienen un ancho máximo de 240 px y truncan el nombre; al desbordarse,
-los chevrons permiten recorrer los tabs ocultos y **+** sigue visible. Al abrir
-o activar un request, su pestaña se muestra automáticamente.
+Tauri restores names, folder references, read-only access, and the active
+selection from `workspaces.json` in the app's local data directory. The
+current format is version 2. It loads version 1 and migrates the original
+workspace label while retaining references. The app writes the file through
+a temporary file with mode 0600 on Unix. It stores references and selections
+outside the collections. Requests, responses, secrets, and drafts are kept
+out of this file. A corrupt or externally changed file is retained and
+blocks writes to the registry. One app instance writes the registry.
+Workspace variables and cross-device synchronization are outside the
+current scope.
 
-Un tab nuevo sin editar se cierra directamente, sin indicador de cambios ni
-confirmación. Un request con cambios pendientes muestra **Save / Close without
-saving / Cancel** al cerrar; si aún no tiene archivo, Save pasa al selector de
-destino. Un fallo o cancelación del guardado conserva la pestaña y el borrador.
-Al reiniciar se recuperan las pestañas de la última sesión del workspace activo,
-su orden, la pestaña seleccionada, el environment elegido y los borradores,
-incluidos los **Untitled**. Las revisiones se obtienen de nuevo al abrir cada
-archivo. Si cambió o desapareció, la configuración recuperada queda como un
-request sin guardar; Save permite crear una copia completa en otra ubicación
-sin sobrescribir el original ni perder campos no soportados.
+To try the bundled example, start `node examples/basic-http/server.mjs`
+from the repository root and choose **Try example**. The app selects
+`users/list.yml` and the `local` environment. The
+[CLI](../../bins/cli/README.md) can run the same request.
 
-La copia automática se escribe tras 400 ms sin cambios en `recovery.json`,
-fuera de las colecciones, mediante un temporal sincronizado y permisos 0600 en
-Unix. Guarda la configuración del request, incluidos bodies y valores literales
-escritos en él; usa placeholders para credenciales. No incluye respuestas,
-secretos de ejecución, baseUrl override ni borradores de environments. El límite
-del respaldo es 128 pestañas y 16 MiB. Un archivo corrupto, incompatible,
-redirigido por un enlace o cambiado externamente se conserva y bloquea su
-sobrescritura; la app muestra un aviso. Se presupone una instancia escribiendo
-el respaldo. Una salida forzada recupera la última copia completada.
-Si una escritura tarda, se conserva solo la que está en curso y el respaldo
-pendiente más reciente. El cierre espera ese respaldo final y un fallo mantiene
-la ventana abierta cuando quedan borradores.
+## Tabs and recovery
 
-Las pestañas abiertas conservan sus respuestas cargadas. Reenviar elimina el
-cuerpo anterior de la pestaña; cerrarla libera también la respuesta de Rust si
-su ID sigue siendo el actual. Cerrar una respuesta antigua no elimina la nueva.
+The workbench **+** button creates an **Untitled** request in memory.
+On its first **Save**, select a name, collection, and folder. Saved requests
+use their existing file. Double-click the name in the breadcrumb to rename
+it. Tabs are capped at 240 px and truncate long names. Chevrons scroll
+overflowing tabs while **+** stays visible. Opening or selecting a request
+scrolls its tab into view.
 
-El menú de opciones de cada request en el árbol ofrece **Delete** tanto en la
-raíz de una colección como dentro de una carpeta. Pide confirmación antes de
-borrar permanentemente el archivo y cerrar su pestaña; también avisa si perderá
-cambios pendientes. Cancelar o un fallo conserva el request y sus cambios.
-El borrado respeta el acceso de solo lectura y bloquea archivos cambiados desde
-la revisión abierta. Las carpetas y las demás peticiones se conservan.
+A new, unedited tab closes immediately. Closing an edited request offers
+**Save**, **Close without saving**, and **Cancel**. Saving an untitled request
+opens the destination picker. A failed or cancelled save preserves the tab
+and the draft. Restarting restores the active workspace's tabs, their order,
+the active tab, environment selections, and drafts, including **Untitled**
+requests. The app reloads the revision of each file on open. If the file
+changed or disappeared, the recovered request becomes an unsaved copy.
+**Save** creates a complete copy at a new location and preserves fields the
+editor cannot edit.
 
-Los tabs Params, Auth, Headers, Body y Variables editan la petición. Se conservan
-filas duplicadas y flags de habilitación. Params, Headers y Variables de request
-siempre ofrecen una fila vacía al final y añaden la siguiente al editarla; no hay
-botón de agregar y la fila virtual no se guarda ni marca cambios pendientes.
-Los bodies soportados son JSON, texto y XML, y las auth Basic, Bearer, API Key
-e Inherit. Body carga CodeMirror 6 al abrir un tipo soportado: números de línea,
-resaltado JSON/XML, indentación de dos espacios, búsqueda/reemplazo y undo/redo.
-JSON cierra automáticamente llaves, corchetes y comillas, deja el cursor entre
-ambos caracteres y salta un cierre ya insertado. Backspace entre un par vacío
-borra ambos caracteres. El editor conserva el borde neutro y no resalta la línea activa.
-Ctrl/Cmd+F abre búsqueda; Ctrl/Cmd+[ y ] ajustan indentación; Tab conserva la
-navegación entre controles salvo cuando confirma una sugerencia. Solo hay una instancia del editor montada.
-Cambiar de request o salir de Body conserva el borrador y libera el historial
-de undo de esa vista. **Discard** también reinicia el historial.
-**Format JSON** es explícito y reversible: conserva números grandes, claves
-duplicadas y escapes; si el JSON es inválido o excede los límites del formateador,
-deja el texto intacto. Abrir, guardar o cambiar de tipo no formatea el contenido,
-incluidos Unicode y finales de línea CRLF/CR/LF. Los saltos de línea al pegar usan
-la convención del documento. Un fallo de carga deja un textarea editable y
-**Retry editor**, conservando el borrador.
-Escribir `{{` abre sugerencias de variables y filtra por prefijo; flechas,
-Enter o Tab seleccionan una opción y completan el cierre sin duplicar llaves.
-Pegar un prefijo también abre el menú. Si no hay variables o coincidencias,
-el menú ofrece agregarlas en **Variables**; si falla el contexto heredado, lo
-indica en lugar de ocultar las sugerencias.
-El menú indica el scope y el archivo de origen, con la misma precedencia del
-core: colección → carpetas → environment → request → override de runtime.
-Los placeholders definidos se resaltan en morado; los ausentes, en rojo.
-Hover o Alt+Enter con el cursor dentro de un placeholder abre su valor editable.
-**Apply** modifica la variable del request o crea un override si es heredada;
-**Save** persiste el borrador y **Discard** lo descarta. El override de `baseUrl`
-sigue siendo transitorio. Los secretos muestran un campo password vacío para
-reemplazar su valor solo en memoria, sin mostrarlo ni guardarlo en YAML/historial.
-El selector **Environment** reúne la selección, **Create environment** y
-**Manage environments**, con el mismo menú que Workspace. La creación pide solo
-el nombre, selecciona el environment nuevo y cierra el formulario. La gestión
-abre una página propia con lista lateral y búsqueda, limitada a los environments
-de la colección activa, y conserva el request al regresar. La tabla permite
-editar Name, Value y Description, y agrega una
-fila vacía al escribir, como Variables de request, y permite habilitar, editar,
-eliminar y declarar secretos. Save/Reset protege los cambios al regresar o
-seleccionar otro environment. La selección aparece marcada en la lista; Save y
-Reset guardan o descartan el borrador.
-`baseUrl override` es transitorio y tiene prioridad sobre el YAML.
+After 400 ms without changes, the app writes a synced temporary file and
+replaces `recovery.json` outside the collections. On Unix the file uses
+mode 0600. It captures request configuration, including bodies and literal
+values. Use placeholders for credentials. Responses, runtime secrets,
+the base URL override, and environment drafts are excluded. The backup is
+limited to 128 tabs and 16 MiB. A corrupt, incompatible, symlinked, or
+externally changed backup is preserved and the app shows a warning. One
+instance writes the backup. A forced exit restores the last completed
+backup. If a write is slow, the app keeps the current write and the latest
+pending backup. Closing waits for the final backup and keeps the window
+open on failure when edited drafts remain.
 
-**Send** o Ctrl/Cmd+Enter ejecuta el borrador mediante el core
-Rust; **Cancel** cancela la operación. El panel Response aparece al recibir una
-respuesta y presenta status, duración, tamaño y vistas Body/Headers. Su altura
-se ajusta arrastrando el separador, con límites para conservar espacio para el
-editor; la preferencia se guarda localmente.
-El módulo de Response y sus herramientas JSON se cargan con la primera respuesta;
-las siguientes reutilizan el módulo. Si falla su carga, quedan disponibles el
-cuerpo original, los encabezados, las métricas HTTP y los siguientes fragmentos.
+Open tabs keep their loaded responses. Resending drops the previous
+response body from the tab. Closing a response frees its Rust data if the
+response ID still matches. Closing an older response preserves the newer one.
 
-JSON usa **Pretty** por defecto cuando el body completo es válido, con colores
-por tipo y objetos/arrays plegables. También ofrece **Text**, **Raw**, ajuste de
-líneas y copia; las respuestas binarias se muestran como **Hex**. El formateado
-tiene límites de tamaño/profundidad y no cambia los valores numéricos originales.
-Copiar/guardar/recargar confirma con un icono de check temporal.
-El body se conserva en Rust y se solicita por fragmentos de 64 KiB, con carga
-adicional manual y máximo de 16 MiB. El backend retiene solo la última respuesta;
-la copia completa requiere cargar todo el body.
+**Delete** in the request tree menu deletes a request file at the collection
+root or in a folder and closes its tab. The confirmation also identifies
+unsaved edits that would be lost. Cancelling or a failed delete keeps the
+request and its edits. Deletion respects read-only access and blocks files
+changed since the opened revision. It preserves folders and other requests.
 
-Los comandos Tauri usan una sesión con una raíz elegida por el usuario. JS no
-accede directamente al filesystem ni ejecuta HTTP. HTML se presenta como texto.
-**Save** o Ctrl/Cmd+S guarda solo los campos editados. **Discard** recarga desde
-disco; en un Untitled restablece el request vacío. Cambiar de pestaña conserva
-su borrador. Antes de cambiar de workspace o abandonar colecciones con cambios
-pendientes, el editor exige guardar o descartar esos cambios. Al cerrar la
-ventana guarda y espera la copia de recuperación más reciente; un fallo del
-respaldo bloquea el cierre si hay borradores editados. Los cambios pendientes
-en environments aún requieren Save o Discard antes de cerrar. Los tabs nuevos
-sin editar no bloquean estas acciones.
-Los ejemplos incluidos son de solo lectura; abre `examples/basic-http` con el
-selector de carpetas para editar los archivos originales.
+## Editing and sending
 
-El backend conserva bytes y CST, compara la revisión, valida el resultado,
-sincroniza un temporal del mismo directorio y reemplaza el archivo. Guardar sin
-cambios no altera bytes ni mtime. Se preservan permisos, comentarios, campos
-desconocidos y formato de regiones no editadas; nodos nuevos pueden usar YAML
-flow. Un cambio externo o borrado bloquea el guardado y exige recargar. Si se
-detecta un conflicto después de escribir el temporal, se conserva su ruta para
-recuperación. Existe una ventana entre la última comprobación y el reemplazo
-frente a escritores externos que no cooperan; no se promete compare-and-swap.
+Use **Params**, **Auth**, **Headers**, **Body**, and **Variables** to edit a
+request. The app preserves duplicates and enabled flags. Request Params,
+Headers, and Variables keep a blank final row and add another as you type.
+That placeholder is excluded from saves and does not mark a draft as edited.
+The client supports JSON, text, and XML bodies and Basic, Bearer, API Key,
+and Inherit authentication.
 
-Cada envío relee defaults y el environment. Un borrador con una revisión de
-petición distinta a la del disco se bloquea. No hay guardado de varios archivos
-como una transacción ni soporte de colecciones bundled.
+Opening a supported body type loads CodeMirror 6 with line numbers, JSON/XML
+highlighting, two-space indentation, find/replace, and undo/redo. JSON
+automatically pairs braces, brackets, and quotes, places the cursor between
+them, and skips a closing character that is already present. Backspace
+inside an empty pair removes both characters. The editor uses a neutral
+border and leaves the active line unhighlighted. Use Ctrl/Cmd+F to find and
+Ctrl/Cmd+[ or ] to adjust indentation. Tab moves between controls unless
+it accepts a suggestion. The app mounts one editor instance. Switching
+requests or leaving **Body** retains the draft and releases that view's
+undo history. **Discard** also resets undo history.
 
-El watcher nativo `notify` vigila las colecciones del workspace activo y sus
-directorios padre para detectar altas, cambios, renombres, borrados y reemplazos
-de la raíz desde un editor o Git. No sigue symlinks e ignora las rutas ocultas,
-`.git`, `node_modules`, `scripts`, `fixtures` y `auth`, como el índice del árbol.
-Las notificaciones se agrupan tras 300 ms sin eventos; la actualización espera
-si hay HTTP, guardados, edición de nombre o un diálogo abierto. Al cambiar de
-workspace se retiran las suscripciones anteriores.
+**Format JSON** is explicit and undoable. It preserves large numbers,
+duplicate keys, and escape sequences. Invalid JSON and text outside its
+limits are left intact. Opening, saving, and changing body types preserve
+formatting, Unicode, and CRLF/CR/LF line endings. Pasted line breaks follow
+the document's convention. If CodeMirror fails to load, an editable text
+area and **Retry editor** remain available with the draft intact.
 
-Actualizar el árbol conserva la colección activa y sus revisiones. Los tabs
-sin cambios se recargan, y los editados conservan su borrador, incluidos los
-inactivos. Un cambio externo, incluso solo de comentarios, muestra **Reload
-from disk / Save copy** y bloquea Save y Send hasta resolverlo. Reload descarta
-explícitamente el borrador seleccionado; Save copy conserva la configuración
-completa en un request sin guardar y abre el selector de destino. Un archivo
-borrado o renombrado se conserva automáticamente como copia sin guardar.
-Un YAML ilegible o una colección inaccesible mantiene el contenido abierto y
-muestra un aviso; puede recuperarse al corregir el archivo.
+Typing or pasting a prefix starting with `{{` opens variable suggestions.
+Use arrows, Enter, or Tab to choose an item and complete the placeholder
+without repeating the braces. If there are no matches, the menu offers to
+add a variable in **Variables**. A failure to load inherited context is
+shown in the menu. Suggestions show the source scope and file. Precedence,
+lowest first, is collection, folders, environment, request, and runtime
+override. Defined placeholders appear purple and missing ones appear red.
 
-El botón **Refresh collections** y volver a enfocar la ventana vuelven a leer
-el workspace. Sirven también cuando el filesystem no emite notificaciones
-fiables o el watcher informa un error. La lectura y las notificaciones nativas
-se verifican en macOS y Linux ARM64 bajo Docker; Windows sigue pendiente.
+Hover over a placeholder or press Alt+Enter with the cursor inside it to
+edit the value. **Apply** edits the request variable or creates a request
+override for an inherited variable. **Save** writes the draft and
+**Discard** drops it. The `baseUrl` override is transient and takes
+precedence over YAML. Secrets use an empty password field for in-memory
+replacement. Their values stay out of the display, YAML, and history.
 
-## Política de secretos e historial del MVP 0
+The **Environment** menu selects an environment or opens **Create environment**
+or **Manage environments**. Creation needs only a name and selects the new
+environment. Management opens a separate view with a searchable sidebar for
+the active collection's environments. Returning keeps the current request.
+The table edits names, values, and descriptions and appends a blank row as
+you type. Rows can be enabled, edited, deleted, or declared secret. The
+selected environment is marked in the sidebar. **Save** and **Reset**
+handle pending edits before you leave or select another environment.
 
-Los valores de **Secrets · memory only** se suministran únicamente para Send.
-Se eliminan del estado al cambiar de environment o colección y no se escriben
-en YAML ni en historial. La CLI obtiene secretos de variables de proceso
-nombradas explícitamente con `--secret-env`; no importa todo el environment.
-Save escribe las plantillas y los valores de configuración editados: usa
-`{{token}}`/`{{password}}` para mantener credenciales fuera de los archivos.
-El body configurado sí se guarda en el YAML al pulsar Save.
+**Send** or Ctrl/Cmd+Enter runs the draft through the Rust core.
+**Cancel** cancels it. The response panel shows status, duration, size, and
+**Body** and **Headers**. Drag its divider to resize it. The bounds leave
+room for the editor and the app stores the height locally. The panel and
+its JSON tools load with the first response and are reused. If loading fails,
+the raw body, headers, HTTP metrics, and subsequent chunks stay available.
 
-**History** persiste solo fecha UTC, ruta relativa de la petición, método,
-status/categoría del resultado, duración y número de bytes recibidos. No incluye
-URL, query resuelta, valores de environment, credenciales, headers, mensajes de
-error ni bodies enviados/recibidos. El método se limita a nombres estándar o
-CUSTOM; la ruta identifica el archivo, sin almacenar la raíz de la colección.
+A valid complete JSON body defaults to color-coded **Pretty** with collapsible
+objects and arrays. **Text**, **Raw**, wrapping, and copying are also
+available. Binary responses use **Hex**. Formatting follows size and depth
+limits and preserves the original numeric values. Copy, save, and reload show
+a temporary check icon. Rust retains the body and sends it in 64 KiB chunks.
+Load more chunks manually up to the 16 MiB limit. The backend retains the
+most recent response for a tab, and full copying requires the complete body.
 
-Se retienen las últimas 200 ejecuciones, en `history.json` bajo el directorio
-de datos de Tauri (`dev.nimblepost.desktop`), con reemplazo atómico y permisos
-0600 en Unix. **Clear history** vacía los registros. Un archivo incompatible o
-corrupto al abrirse se conserva y se informa; no se sobrescribe automáticamente.
-Un fallo al persistir historial no convierte una respuesta HTTP exitosa en error.
-Se presupone una instancia de la app escribiendo ese historial.
+## Saving and external changes
 
-Persistir bodies, headers o credenciales en el historial requerirá una decisión
-separada con consentimiento explícito, redacción, retención y borrado definidos;
-no existe esa opción en MVP 0. No hay almacenamiento persistente de secretos ni
-integración con keychain todavía.
+Tauri commands run in a session scoped to a root the user selects.
+JavaScript uses the native backend for filesystem and HTTP operations.
+HTML responses appear as text. **Save** or Ctrl/Cmd+S writes edited fields.
+**Discard** reloads from disk or resets an untitled request. Switching tabs
+retains the draft. Save or discard pending changes before changing workspace
+or leaving a collection. Closing the window waits for the newest recovery
+backup. A backup failure blocks closing while edited drafts remain, and
+pending environment edits require **Save** or **Discard**. Unedited new tabs
+close without blocking. The bundled example is read-only. To edit the
+original files, open `examples/basic-http` with the folder picker.
+
+The backend keeps the original bytes and concrete syntax tree, compares the
+revision, validates the result, syncs a temporary file in the same directory,
+and replaces the original. A no-op save leaves bytes and modification time
+intact. Saves preserve permissions, comments, unknown fields, and formatting
+in untouched areas. New nodes can use flow YAML. An external change or
+deletion blocks saving and requires a reload. If a conflict is detected after
+a temporary file was written, the app reports its path for recovery. External
+writers can race between the final comparison and rename.
+
+Each send reloads defaults and the environment. A draft whose file revision
+differs from the one on disk is blocked. The current scope is single-file
+saves and filesystem collections.
+
+The native `notify` watcher monitors collections in the active workspace and
+their parents for creations, changes, moves, deletions, and root replacements
+from an editor or Git. Like the tree index, it skips symlinks, hidden paths,
+`.git`, `node_modules`, `scripts`, `fixtures`, and `auth`. It groups
+notifications after 300 ms of inactivity. Refresh waits during HTTP execution,
+saving, renaming, and open dialogs. Switching workspaces drops the previous
+subscriptions.
+
+A tree refresh keeps the active collection and its revisions. Clean tabs
+reload, and edited tabs retain their drafts even when inactive. Any external
+change, including comment-only edits, offers **Reload from disk** or
+**Save copy** and blocks **Save** and **Send** until resolved.
+**Reload from disk** discards the selected draft. **Save copy** preserves its
+complete configuration in an unsaved request and opens the destination picker.
+Deleting or renaming a file externally automatically retains an unsaved copy.
+An unreadable YAML file or inaccessible collection keeps the open content
+visible and displays a warning. Correct the file to recover normal operation.
+
+**Refresh collections** and refocusing the window reread the workspace.
+Use them when filesystem notifications are unreliable or the watcher reports
+an error. Native watcher tests run on macOS and in the Windows and Linux
+validation jobs.
+
+## MVP 0 secrets and history policy
+
+Supply **Secrets · memory only** values for **Send**. They clear when you
+change environment or collection and stay out of YAML and history. The CLI
+reads only process variables explicitly named with `--secret-env`. **Save**
+writes templates and edited configuration values, including the configured
+body. Use `{{token}}` or `{{password}}` to keep credentials out of files.
+
+**History** stores UTC timestamps, relative request paths, methods,
+status or result categories, durations, and received byte counts. It excludes
+URLs, resolved queries, environment values, credentials, headers, error
+messages, and request and response bodies. Method names are standardized or
+stored as CUSTOM. The relative path identifies the file without revealing
+the collection root.
+
+The app keeps the last 200 executions in `history.json` under the Tauri
+data directory (`dev.nimblepost.desktop`), with atomic replacement and
+mode 0600 on Unix. **Clear history** clears the entries. An incompatible
+or corrupt file is retained and reported. History write failures preserve
+the HTTP result. One app instance writes the history file. Storing
+bodies, headers, or credentials would require a separate decision with explicit
+consent and rules for redaction, retention, and deletion. A persistent
+secret store and keychain integration are outside the current scope.
 
 ```sh
 npm run check
@@ -293,57 +296,62 @@ npm run build
 cargo test --workspace --locked
 ```
 
-## Renderizado de árboles y respuestas
+## Tree and response rendering
 
-El árbol monta las filas del viewport y seis filas adicionales por extremo.
-Al desplazarse reutiliza esas filas y sus componentes; las rutas, permisos,
-etiquetas y atributos de accesibilidad se actualizan con su contenido. El foco
-de menús y diálogos conserva la identidad lógica del request, incluso si su
-botón se reutilizó mientras estaba fuera de pantalla.
-Las colecciones y carpetas cerradas omiten sus descendientes. Seleccionar una
-pestaña revela su request y abre sus carpetas; el estado de expansión se conserva
-al hacer scroll y refrescar archivos. El árbol usa una sola parada de Tab:
-flechas para recorrer/expandir, Enter para abrir y Shift+F10 para sus acciones.
-Los nombres y métodos se leen solo para esas filas y se reutilizan al volver.
-La caché y los intentos de lectura se limitan a 512 rutas por colección, o las
-filas visibles si su número supera ese límite. Las rutas ocultas desalojadas
-se vuelven a consultar al aparecer; también se desalojan los intentos fallidos.
-Mientras llegan las etiquetas se muestra el nombre del archivo y `HTTP`.
-Las notificaciones externas identifican colecciones: se invalidan sus etiquetas
-y se releen las visibles; las ocultas esperan hasta aparecer. Las demás
-colecciones conservan su caché. Un YAML inválido o una lectura fallida mantiene
-el nombre del archivo sin reintentos continuos; Refresh collections permite
-reintentarlo. Las etiquetas del request activo reflejan su borrador.
+The tree mounts rows in the viewport plus six extra at each end. Scrolling
+reuses those rows and their components. Paths, permissions, labels, and
+accessibility attributes update with the content. Menu and dialog focus
+tracks the logical request even when its button was reused off-screen.
+Collapsed collections and folders omit their descendants. Selecting a tab
+reveals its request and expands its folders. Expansion survives scrolling
+and refreshes. The tree takes a single Tab stop. Use arrows to move or
+expand, Enter to open a request, or Shift+F10 for actions.
 
-Las respuestas de más de 500 líneas montan las líneas visibles y seis líneas
-adicionales por extremo. El índice guarda posiciones dentro del cuerpo original;
-las alturas de las líneas ajustadas se miden al aparecer. El cuerpo completo sigue
-disponible mediante Copy response body. Pretty conserva el formato y los valores
-en respuestas grandes, pero omite resaltado y plegado cuando supera ese umbral.
-Los cuerpos pequeños conservan su presentación anterior. El visor de respaldo
-ante un fallo de importación usa el mismo límite. La selección y búsqueda nativas
-del navegador solo abarcan el texto montado; la copia completa usa el botón.
-Esta optimización limita líneas, no caracteres de una única línea muy larga.
+Request names and methods load only for mounted rows and are reused on
+return. Each collection caches labels and read attempts for up to 512 paths,
+or the visible row count if it is higher. Evicted rows are read again when they
+appear, and failed attempts may also be evicted. While loading, the tree shows
+the filename and `HTTP`. An external notification invalidates the affected
+collection's labels. Visible labels are refreshed and hidden ones are refreshed
+when they appear. Other collections keep their caches. Invalid YAML or an
+unreadable file keeps the filename visible without continuous retries.
+Use **Refresh collections** to try again. The active request label reflects
+its draft.
 
-## Rendimiento y distribución nativa
+Responses over 500 lines mount the visible lines plus six extra at each end.
+The index stores offsets into the original body and measures wrapped line
+heights as they appear. **Copy response body** accesses the complete loaded
+body. Pretty keeps its formatting and values in large responses and omits
+highlighting and collapsing beyond that threshold. Smaller responses retain
+those features. The fallback viewer uses the same line limit. Native text
+selection and search are limited to mounted text. The line optimization
+does not shorten an individual long line.
 
-Los scripts `scripts/native-performance.mjs` y `scripts/performance-report.mjs`
-en la raíz permiten medir y comparar arranque habitual/RSS en Linux, con perfiles
-locales aislados. Estas mediciones no acreditan cold start ni objetivos absolutos.
+## Native packaging and performance
 
-`tauri.windows.conf.json` configura NSIS y `tauri.linux.conf.json` configura
-Debian. El workflow manual `Native distribution validation` compila, instala,
-abre y desinstala paquetes en Windows/Linux x64. El smoke interactivo ampliado
-sigue pendiente; los artefactos de CI no cambian el canal público macOS ALPHA.
+`scripts/native-performance.mjs` and `scripts/performance-report.mjs`
+measure and compare ordinary startup and resident memory on Linux with
+isolated local profiles. These measurements cover ordinary startup, with
+cold starts and absolute targets measured separately.
 
-El workflow manual `Native performance tooling` permite ejercitar respuestas
-grandes, portapapeles, cancelación, retención e interacción en Linux. Las
-validaciones nativas y de rendimiento son independientes del CI habitual.
+`tauri.windows.conf.json` configures NSIS and `tauri.linux.conf.json`
+configures Debian. The manual **Native distribution validation** workflow
+builds, installs, launches, and uninstalls Windows and Linux x64 packages.
+Interactive validation passed on Windows 11 x64 and Debian 13 x86_64 for
+the packages from [run 44791755659](https://github.com/Khr0x/nimblepost/actions/runs/44791755659).
+Public ALPHA installers are distributed for macOS.
 
-## Defaults de colección y carpeta
+The manual **Native performance tooling** workflow exercises large
+responses, clipboard operations, cancellation, retention, and interactions
+on Linux. Native package and performance validation run separately from
+regular CI.
 
-**Edit defaults** en el menú de colección/carpeta edita headers/auth/variables
-del scope con procedencia. Save/Discard es explícito; abrir no escribe, y
-folder.yml ausente se crea exclusivamente al guardar. Conflictos y readonly
-bloquean overwrite; el diálogo protege cambios y teclado/foco. Los borradores de
-defaults no se incluyen en recovery de requests.
+## Collection and folder defaults
+
+Select **Edit defaults** in a collection or folder menu to edit scoped
+headers, authentication, and variables, with source information.
+**Save** and **Discard** are explicit. Opening the editor leaves disk untouched,
+and a missing `folder.yml` is created exclusively on save. Conflicts and
+read-only status block an overwrite. The dialog protects pending edits and
+supports keyboard navigation and focus. The request recovery file excludes
+defaults drafts.

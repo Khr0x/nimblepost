@@ -835,10 +835,10 @@ fn history_is_bounded_private_metadata_only_and_corruption_is_not_overwritten() 
 }
 
 #[test]
-fn real_requests_keep_all_other_lines_and_multiline_body_edits_preserve_following_nodes() {
+fn fixture_requests_keep_all_other_lines_and_multiline_body_edits_preserve_following_nodes() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     for relative in [
-        "tests/fixtures/opencollection/official/httprequest.yml",
+        "tests/fixtures/opencollection/nimblepost/request.yml",
         "tests/fixtures/opencollection/bruno/get-users.yml",
         "tests/fixtures/opencollection/bruno/users/create-user.yml",
     ] {

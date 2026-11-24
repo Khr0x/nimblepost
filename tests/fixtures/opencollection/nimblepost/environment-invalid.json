@@ -1,0 +1,7 @@
+{
+  "name": "Warehouse training",
+  "variables": [
+    { "name": "inventoryUrl", "value": "https://inventory.example.invalid" },
+    { "name": "aisle", "value": "F7", "transient": true }
+  ]
+}

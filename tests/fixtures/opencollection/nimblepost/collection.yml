@@ -1,0 +1,14 @@
+opencollection: "1.0.0"
+info:
+  name: Warehouse inventory
+  summary: Check stock levels and record deliveries.
+  version: "0.3.0"
+bundled: false
+config:
+  environments: []
+request:
+  headers:
+    - name: X-Warehouse
+      value: north
+items: []
+docs: Inventory requests for a fictional warehouse.

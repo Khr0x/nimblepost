@@ -3,6 +3,9 @@
 NimblePost's own code is licensed under [Apache-2.0](LICENSE). The material
 listed below retains its upstream licensing and attribution.
 
+Desktop installers include this notice, NimblePost's license, the Inter
+license and the shadcn-svelte license in the app's `licenses/` resources.
+
 ## OpenCollection schema
 
 - Local file: `schemas/opencollection/1.0.0/opencollection.schema.json`.
@@ -11,7 +14,7 @@ listed below retains its upstream licensing and attribution.
 - License: MIT, as declared in the [upstream package manifest](https://github.com/opencollection-dev/opencollection/blob/535a5c5803da7a3fe1d575fff23350b4a7c43c6a/packages/oc-schema/package.json).
 
 The vendored schema is unchanged. Its pinned hash is recorded in the
-[fixture manifest](tests/fixtures/opencollection/manifest.json). The schema
+[fixture manifest](https://github.com/Khr0x/nimblepost/blob/main/tests/fixtures/opencollection/manifest.json). The schema
 snapshot contains no copyright header; the author attribution above comes
 from the package manifest. The MIT permission terms are reproduced below.
 
@@ -33,17 +36,6 @@ from the package manifest. The MIT permission terms are reproduced below.
 > OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 > SOFTWARE.
 
-## OpenCollection documentation examples
-
-`tests/fixtures/opencollection/official/` contains examples extracted from
-OpenCollection's documentation at revision
-`535a5c5803da7a3fe1d575fff23350b4a7c43c6a`. The
-[fixture manifest](tests/fixtures/opencollection/manifest.json) records each
-source URL, extraction method and hash. The
-[documentation package manifest](https://github.com/opencollection-dev/opencollection/blob/535a5c5803da7a3fe1d575fff23350b4a7c43c6a/packages/oc-spec-site/package.json)
-does not declare a separate license. This attribution does not assign a new
-license to those upstream examples.
-
 ## Bruno compatibility fixtures
 
 `tests/fixtures/opencollection/bruno/` contains unchanged fixtures from
@@ -51,23 +43,25 @@ license to those upstream examples.
 revision `bc90e46b288446ebe0c8d67b28470d2efc0a8c48`.
 
 Copyright (c) 2022 Anoop M D, Anusree P S and Contributors.
-The original [MIT license](tests/fixtures/opencollection/LICENSE.bruno.md)
+The original [MIT license](https://github.com/Khr0x/nimblepost/blob/main/tests/fixtures/opencollection/LICENSE.bruno.md)
 is included alongside the fixtures. Source paths and hashes are in the
-[fixture manifest](tests/fixtures/opencollection/manifest.json).
+[fixture manifest](https://github.com/Khr0x/nimblepost/blob/main/tests/fixtures/opencollection/manifest.json).
 
 ## shadcn-svelte components
 
 `apps/desktop/src/lib/components/ui/` contains components derived from
 shadcn-svelte. Copyright (c) 2023 Hunter Johnston, CokaKoala and shadcn.
-The original [MIT license and copyright notices](apps/desktop/src/lib/components/ui/LICENSE.md)
-are retained with the components.
+The original [MIT license and copyright notices](https://github.com/Khr0x/nimblepost/blob/main/apps/desktop/src/lib/components/ui/LICENSE.md)
+are retained with the components and included in the desktop bundle as
+`licenses/shadcn-svelte-MIT.txt`.
 
 ## Inter font
 
 `apps/desktop/src/assets/fonts/inter-latin-wght-normal.woff2` is Inter.
 Copyright (c) 2016 The Inter Project Authors.
-The [SIL Open Font License 1.1](apps/desktop/src/assets/fonts/OFL.txt)
-is retained alongside the font and included in desktop bundle resources.
+The [SIL Open Font License 1.1](https://github.com/Khr0x/nimblepost/blob/main/apps/desktop/src/assets/fonts/OFL.txt)
+is retained alongside the font and included in the desktop bundle as
+`licenses/Inter-OFL.txt`.
 
 ## Package dependencies
 

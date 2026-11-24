@@ -1,8 +1,8 @@
 # NimblePost core
 
-Biblioteca Rust independiente de Desktop y CLI. Lee OpenCollection YAML 1.2,
-valida contra el esquema fijado, resuelve variables y ejecuta HTTP/HTTPS con
-Tokio, reqwest y rustls.
+The shared Rust library reads OpenCollection YAML 1.2, validates it against
+the pinned schema, resolves variables, and executes HTTP/HTTPS with Tokio,
+reqwest, and rustls. It can run independently of Desktop and CLI.
 
 ```rust,no_run
 use nimblepost_core::{
@@ -13,97 +13,103 @@ use nimblepost_core::{
 let loaded = load_request("examples/basic-http", "users/list.yml", Some("local")).await?;
 let context = ExecutionContext::default();
 let prepared = prepare(&loaded, &context)?;
-let token = CancellationToken::new(); // otro task puede llamar a token.clone().cancel()
+let token = CancellationToken::new(); // Another task can call token.clone().cancel().
 let response = execute(prepared, &token).await?;
 
 assert_eq!(response.status, 200);
-// response.headers conserva duplicados; response.body contiene bytes originales.
+// response.headers preserves duplicates. response.body contains the original bytes.
 # Ok(())
 # }
 ```
 
-Para un archivo suelto: `Document::read(path).await` y
-`LoadedRequest::standalone(document)`. Sin colección, el caller debe suministrar
-las variables mediante `ExecutionContext.overrides`. Un `Document` conserva
-`original()` íntegro, incluso si `validate()` detecta un campo incompatible.
+For a standalone file, use `Document::read(path).await` followed by
+`LoadedRequest::standalone(document)`. Supply its variables through
+`ExecutionContext.overrides`. A `Document` keeps its full `original()` source
+available even when `validate()` finds an incompatible field.
 
-Precedencia: overrides transitorios → variables de petición → environment →
-carpetas desde la más cercana → colección. `variable_origins()` permite conocer
-el scope y archivo sin devolver valores. Los secretos declarados se suministran
-en `ExecutionContext.secrets` y solo se exigen cuando una plantilla los utiliza.
-La preparación y ejecución nunca escriben archivos.
+Variable precedence, highest first, is transient overrides, request,
+environment, folders from nearest to farthest, and collection.
+`variable_origins()` returns the source scope and file without exposing values.
+Pass declared secrets through `ExecutionContext.secrets`. Only referenced
+secrets are required. Preparation and execution leave source files untouched.
 
-Además de método/URL se ejecutan headers, query params, body JSON/text/XML,
-Basic/Bearer/API Key, defaults de carpeta/colección y settings heredados.
-Configuraciones activas aún no soportadas producen error antes de enviar.
+The engine supports headers, query parameters, JSON/text/XML bodies, Basic,
+Bearer and API Key auth, and inherited defaults from collections and folders.
+Active settings outside the supported subset produce an error before sending.
 
-`load_defaults(root, folder)` lee el scope y sus ancestros sin escribir, incluso
-si falta folder.yml. `Document::edited` admite headers/auth/variables de colección
-y carpeta; `create_folder_defaults` crea exclusivamente metadata ausente con
-ediciones validadas. Documentos existentes usan `save_document`; no recrea archivos
-borrados externamente. Ver el [editor de defaults](../../apps/desktop/README.md#defaults-de-colección-y-carpeta).
+`load_defaults(root, folder)` reads the scope and its ancestors without writing,
+even if `folder.yml` is absent. `Document::edited` supports collection and folder
+headers, auth, and variables. `create_folder_defaults` creates missing metadata
+exclusively after validating edits. Use `save_document` for existing documents.
+It refuses to recreate a file deleted externally. See the
+[defaults editor](../../apps/desktop/README.md#collection-and-folder-defaults).
 
-## Ejecutar el ejemplo
+## Run the example
 
-Con un servidor HTTP escuchando en el puerto 3000:
+With a local HTTP server listening on port 3000, run the example from the root.
 
 ```sh
 cargo run -p nimblepost-core --example send -- examples/basic-http users/list.yml local
 ```
 
-Para usar otra URL sin cambiar YAML:
+To override the base URL without editing YAML, pass it as the final argument.
 
 ```sh
 cargo run -p nimblepost-core --example send -- examples/basic-http users/list.yml local http://127.0.0.1:8080
 ```
 
-El ejemplo imprime estado, headers y body como JSON legible. Su representación
-del body es para texto; la biblioteca devuelve bytes y conserva respuestas
-binarias. Ctrl+C cancela la ejecución. La [CLI mínima](../../bins/cli/README.md)
-añade argumentos explícitos y salida binaria en base64.
+The example prints status, headers, and a text representation of the body as
+readable JSON. The library returns original bytes, including binary responses.
+Ctrl+C cancels execution. The [CLI](../../bins/cli/README.md) adds named arguments
+and base64 output for binary bodies.
 
-## Timeout, cancelación y errores
+## Timeouts, cancellation, and errors
 
-Timeout de extremo a extremo: conexión, redirects, headers y lectura del body;
-30,000 ms por defecto, sobrescribible con `settings.timeout` positivo.
-Un `CancellationToken` ya cancelado impide comenzar el envío; cancelar durante
-una petición descarta su future. No puede deshacer efectos ya ejecutados por el
-servidor.
+The end-to-end timeout covers connection, redirects, headers, and body reads.
+It defaults to 30,000 ms and accepts a positive `settings.timeout` override.
+A cancelled `CancellationToken` prevents the request from starting. Cancelling
+during execution drops the HTTP future. Server-side effects may already have
+occurred.
 
-Los errores tipados distinguen archivo inaccesible, conflicto de revisión, YAML inválido (línea/columna),
-configuración inválida (archivo/campo), variable ausente, timeout, cancelación,
-conexión/transporte y límite de body. No incorporan el texto de errores de red o
-parseo que podría incluir URLs o credenciales. HTTP 4xx/5xx se devuelven como
-respuestas, no como fallos de transporte.
+Typed errors distinguish unreadable files, revision conflicts, invalid YAML
+with line and column, invalid configuration with file and field, missing
+variables, timeouts, cancellation, connection and transport errors, and body
+size limits. Raw parser and network errors can contain URLs or credentials,
+so the library reports typed errors with its own messages. HTTP 4xx and 5xx
+are valid responses.
 
-## Límites de esta entrega
+## Supported subset
 
-- Colecciones filesystem y requests sueltos. `collection_index()` descubre el
-  árbol y environments; `request_info()` expone las plantillas guardadas.
-  Desktop y CLI usan esta biblioteca. Bundled y runner siguen pendientes.
-- Máximo 8 MiB por YAML y profundidad 64. No aliases, anchors, tags, merge keys,
-  keys duplicadas ni múltiples documentos. Se valida sin consultar schemas remotos.
-- Body de respuesta en memoria, máximo 16 MiB; sin truncarlo silenciosamente.
-  Desktop expone fragmentos de 64 KiB por IPC. File-backed streaming sigue pendiente.
-- Proxies explícitos y del sistema desactivados en este motor. No cookies
-  persistentes, OAuth, scripts, assertions ni certificados personalizados.
-- Se siguen redirects dentro del mismo origen hasta `maxRedirects`; un cambio
-  de origen devuelve la respuesta 3xx sin seguirla para preservar credenciales
-  en headers personalizados y query params.
-- `encodeUrl: false` y headers manuales de framing/transporte se rechazan.
-  reqwest realiza la codificación y determina Host, Content-Length, etc.
-- `Document::edited(kind, edits)` modifica rutas de campos mediante el CST de
-  yaml-edit 0.3.2 y spans. Un nodo nuevo puede usar JSON flow (YAML 1.2 válido).
-  Se verifica que solo cambien los valores solicitados y no haya nuevos errores
-  de esquema. El parser de ejecución sigue siendo yaml-rust2.
-- `save_document(original, edited)` compara bytes, conserva permisos, sincroniza
-  un temporal y reemplaza un archivo. No-op no modifica mtime. Se serializan los
-  escritores del backend; persiste una ventana frente a escritores externos
-  entre comprobación final y rename. Los conflictos conservan el temporal si ya
-  se escribió.
-- `History` ofrece almacenamiento acotado de metadatos; no acepta payloads HTTP,
-  URLs ni credenciales. Desktop lo utiliza según su
-  [política](../../apps/desktop/README.md#política-de-secretos-e-historial-del-mvp-0).
+- Filesystem collections and standalone requests. `collection_index()` finds
+  the tree and environments, and `request_info()` exposes saved templates.
+  Desktop and CLI share this library. Bundled collections and the runner are
+  planned.
+- YAML up to 8 MiB and 64 levels deep. Aliases, anchors, tags, merge keys,
+  duplicate keys, and multiple documents are rejected. Schema validation runs
+  locally.
+- Response bodies up to 16 MiB in memory. Desktop retrieves 64 KiB chunks via
+  IPC. Streaming to a file is planned.
+- The engine disables explicit and system proxies. Persistent cookies, OAuth,
+  scripts, assertions, and custom certificates are outside the supported
+  subset.
+- The engine follows redirects within the original origin up to `maxRedirects`.
+  A change of origin returns the original 3xx to protect credentials in custom
+  headers and query parameters.
+- `encodeUrl: false` and manually set framing or transport headers are rejected.
+  reqwest handles encoding and sets transport headers such as Host and
+  Content-Length.
+- `Document::edited(kind, edits)` edits field paths using the concrete syntax
+  tree from yaml-edit 0.3.2. New nodes may use JSON flow syntax (valid YAML 1.2).
+  It checks that only requested values changed and that edits introduce no
+  new schema errors.
+- `save_document(original, edited)` compares bytes, preserves permissions,
+  syncs a temporary file, and replaces the original. A no-op save preserves
+  modification time. Backend writers are serialized. External writers can
+  still race between the final check and rename, and a conflict preserves the
+  temporary file if it was already written.
+- `History` stores bounded execution metadata and excludes HTTP payloads, URLs,
+  and credentials. Desktop uses its own
+  [history and secrets policy](../../apps/desktop/README.md#mvp-0-secrets-and-history-policy).
 
 ```sh
 cargo test --workspace --locked
@@ -111,5 +117,5 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 ```
 
-Las pruebas de integración usan servidores efímeros en `127.0.0.1`; no requieren
-servicios externos. Desarrollo y comprobaciones realizados con Rust 1.96.1.
+Integration tests use ephemeral servers on `127.0.0.1`. The project is
+developed and tested with Rust 1.96.1.

@@ -1,0 +1,4 @@
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/Khr0x/nimblepost/security/advisories/new
+    about: Send a private report to the maintainers.

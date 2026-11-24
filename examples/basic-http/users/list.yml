@@ -1,4 +1,4 @@
-# Este comentario y el quoting se deben conservar al editar otro campo.
+# Preserve this comment and the quoting when editing another field.
 info:
   name: List Users
   type: http
@@ -23,4 +23,4 @@ runtime:
 settings:
   timeout: inherit
 docs: |
-  Ejemplo de precedencia: petición (5) sobre carpeta (10).
+  The request value (5) takes precedence over the folder default (10).

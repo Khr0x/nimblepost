@@ -83,6 +83,11 @@ jobs:
             $binary = Join-Path $installPath 'NimblePost.exe'
             if (!(Test-Path $binary)) { throw 'Installed executable is missing' }
             if (!(Get-ChildItem $installPath -Recurse -Filter opencollection.yml)) { throw 'Bundled example is missing' }
+            foreach ($name in @('LICENSE', 'THIRD_PARTY_NOTICES.md', 'Inter-OFL.txt', 'shadcn-svelte-MIT.txt')) {
+              if (!(Test-Path (Join-Path $installPath "licenses/$name") -PathType Leaf)) {
+                throw "Installed license file is missing: $name"
+              }
+            }
             $app = Start-Process $binary -PassThru
             try {
               Start-Sleep -Seconds 5
@@ -110,6 +115,9 @@ jobs:
             dpkg-deb --contents "$package" > "$RUNNER_TEMP/package-contents.txt"
             grep -q 'NimblePost' "$RUNNER_TEMP/package-contents.txt"
             grep -q 'examples/basic-http/opencollection.yml' "$RUNNER_TEMP/package-contents.txt"
+            for name in LICENSE THIRD_PARTY_NOTICES.md Inter-OFL.txt shadcn-svelte-MIT.txt; do
+              grep -Fq "/licenses/$name" "$RUNNER_TEMP/package-contents.txt"
+            done
             grep -q 'libwebkit2gtk-4.1' <(dpkg-deb --field "$package" Depends)
           done
       - name: Install, launch and uninstall production Debian package

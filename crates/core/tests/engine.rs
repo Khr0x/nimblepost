@@ -136,7 +136,7 @@ fn repo() -> PathBuf {
 }
 
 #[test]
-fn rust_validates_the_same_real_fixtures_as_the_contract_tooling() {
+fn rust_validates_the_same_fixtures_as_the_contract_tooling() {
     let fixture_root = repo().join("tests/fixtures/opencollection");
     let manifest: serde_json::Value =
         serde_json::from_slice(&std::fs::read(fixture_root.join("manifest.json")).unwrap())
