@@ -1,5 +1,11 @@
 # @nimblepost/desktop
 
+## 0.2.0-alpha.4
+
+### Patch Changes
+
+- b6be9e1: On Linux, disable WebKit DMA-BUF when the active display uses software rendering. This reduces startup time and idle memory on Debian x64 with LLVMpipe while keeping the JavaScript JIT enabled.
+
 ## 0.2.0-alpha.3
 
 ### Patch Changes
