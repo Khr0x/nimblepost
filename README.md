@@ -21,6 +21,7 @@
 </p>
 
 <p>
+  <a href="#screenshots">Screenshots</a> ·
   <a href="#what-you-can-do">Features</a> ·
   <a href="#run-the-desktop-app">Getting started</a> ·
   <a href="#try-the-included-example">Try it</a> ·
@@ -42,6 +43,21 @@ development. Public installers target macOS. Windows 11 x64 and Debian 13
 x86_64 passed interactive validation with the packages from
 [run 44791755659](https://github.com/Khr0x/nimblepost/actions/runs/44791755659).
 Performance targets are not guarantees. See [current limitations](#current-limitations).
+
+## Screenshots
+
+### Request editor and response
+
+![NimblePost on macOS showing the List Users GET request with its query parameter and a formatted JSON response with status 200](assets/screenshots/http-request.webp)
+
+The [included HTTP example](#try-the-included-example) shows a query parameter
+driven by a variable and its formatted JSON response.
+
+### Folder defaults
+
+![Folder defaults Sources tab showing inherited headers and variables from opencollection.yml alongside a variable defined in users/folder.yml](assets/screenshots/folder-defaults.webp)
+
+The **Sources** tab shows which YAML file defines each inherited or local value.
 
 ## What you can do
 
