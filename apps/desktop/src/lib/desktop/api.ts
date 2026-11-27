@@ -31,8 +31,30 @@ export interface HistoryView { entries: HistoryEntry[]; warning: string | null }
 export interface CreateRequestInput { name: string; fileName?: string; method?: string; url?: string; folder?: string; edits?: FieldEdit[]; document?: Record<string, any> }
 export interface RenameRequestInput { revision: number; name: string; fileName: string }
 export interface RequestUpdate { collection: Collection; path: string; request: RequestInfo }
+export interface GitIssue { code: string; message: string }
+export interface GitEntry { path: string; index: string; worktree: string; conflict: boolean; supported: boolean }
+export interface GitStatus {
+  repoRoot: string; branch: string | null; headOid: string | null; revision: string;
+  entries: GitEntry[]; outsideStagedCount: number; mutationBlock: GitIssue | null; commitBlock: GitIssue | null;
+}
+export type GitSide = 'index' | 'worktree';
+export type GitAction =
+  | { kind: 'status' }
+  | { kind: 'diff'; path: string; side: GitSide; revision: string }
+  | { kind: 'stage'; path: string; revision: string; fileRevision: string; replacePartial: boolean }
+  | { kind: 'unstage'; path: string; revision: string }
+  | { kind: 'commit'; paths: string[]; message: string; revision: string };
+export type GitReply =
+  | { kind: 'status'; status: GitStatus }
+  | { kind: 'diff'; text: string | null; binary: boolean; fileRevision: string | null }
+  | { kind: 'mutation'; status: GitStatus | null; effect: 'applied' | 'notApplied' | 'unknown'; oid: string | null; branch: string | null; issue: GitIssue | null };
+
+let gitOperationId = 0;
+export function nextGitOperationId() { return ++gitOperationId; }
 
 export const api = {
+  git: (root: string, operationId: number, action: GitAction) => invoke<GitReply>('git_operation', { input: { root, operationId, action } }),
+  cancelGit: (operationId: number) => invoke<void>('git_cancel', { operationId }),
   recovery: () => invoke<RecoveryView>('read_recovery'),
   saveRecovery: (snapshot: RecoverySnapshot) => invoke<void>('save_recovery', { snapshot }),
   workspace: () => invoke<WorkspaceView>('read_workspace'),

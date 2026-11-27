@@ -48,6 +48,8 @@ Performance targets are not guarantees. See [current limitations](#current-limit
 - Organize multiple collections in local workspaces, with folders and request tabs.
 - Refresh the tree automatically after external editor or Git changes, while
   keeping edited requests protected with reload and save-copy options.
+- Open **Git changes** from a collection's actions menu to review diffs, stage
+  or unstage files and commit a selection with the system Git.
 - Create requests from the sidebar or start an untitled request and choose where
   to save it later.
 - Edit query parameters, headers, variables, environments and JSON/text/XML bodies.
@@ -189,8 +191,11 @@ package acceptance or performance on every platform.
 - Secrets can be supplied for execution in memory; there is no persistent
   operating-system keychain integration. Literal values saved in requests or
   drafts remain local file content, so keep credentials in secret variables.
-- There are no importers, integrated Git operations, scripts/assertions,
-  collection runners, GraphQL, gRPC or WebSocket support.
+- Git changes works with ordinary local checkouts and commits all explicitly
+  selected staged paths. Use your Git tools for branch management, network
+  operations, signing, hooks and Git LFS files.
+- Importers, scripts/assertions, collection runners, GraphQL, gRPC and WebSocket
+  support are planned.
 
 ## Repository layout
 

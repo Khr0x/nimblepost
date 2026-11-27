@@ -1,4 +1,5 @@
 mod commands;
+mod git;
 mod recovery;
 mod session;
 #[cfg(feature = "native-validation")]
@@ -52,6 +53,8 @@ pub fn run() {
             commands::read_workspace,
             commands::refresh_collections,
             commands::inspect_request,
+            commands::git_operation,
+            commands::git_cancel,
             commands::read_recovery,
             commands::save_recovery,
             commands::create_workspace,

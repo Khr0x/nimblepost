@@ -1,3 +1,4 @@
+use crate::git;
 use crate::recovery::{RecoverySnapshot, RecoveryStore, RecoveryView};
 use crate::watcher::{CollectionChange, CollectionWatcher};
 use crate::workspaces::{CollectionRef, Registry, Store};
@@ -24,6 +25,7 @@ const CHUNK_BYTES: usize = 64 * 1024;
 pub struct Session {
     inner: Mutex<Inner>,
     operation: tokio::sync::Mutex<()>,
+    active_git: Mutex<Option<(u32, CancellationToken)>>,
     history: Arc<Mutex<Option<History>>>,
     history_warning: Mutex<Option<String>>,
     workspaces: Arc<Mutex<Store>>,
@@ -373,6 +375,49 @@ impl Session {
         // Reading the tree must never switch the active root or invalidate draft revisions.
         Ok(self.workspace_view(registry, false).await)
     }
+
+    pub async fn git_operation(&self, input: git::Request) -> Result<git::Reply, git::Error> {
+        let _operation = self.operation.try_lock().map_err(|_| {
+            git::Error::new(
+                "busy",
+                "Another collection operation is running. Try again.",
+            )
+        })?;
+        let allowed = self
+            .workspaces
+            .lock()
+            .unwrap()
+            .registry
+            .active()
+            .collections
+            .iter()
+            .any(|owner| owner.root == input.root && !owner.read_only);
+        if !allowed {
+            return Err(git::Error::new(
+                "invalid-path",
+                "Choose a writable collection in this workspace.",
+            ));
+        }
+        let token = CancellationToken::new();
+        *self.active_git.lock().unwrap() = Some((input.operation_id, token.clone()));
+        struct ClearOnDrop<'a>(&'a Mutex<Option<(u32, CancellationToken)>>);
+        impl Drop for ClearOnDrop<'_> {
+            fn drop(&mut self) {
+                self.0.lock().unwrap().take();
+            }
+        }
+        let _active = ClearOnDrop(&self.active_git);
+        git::execute(&input.root, input.action, token).await
+    }
+
+    pub fn cancel_git(&self, operation_id: u32) {
+        if let Some((id, token)) = self.active_git.lock().unwrap().as_ref()
+            && *id == operation_id
+        {
+            token.cancel();
+        }
+    }
+
     pub async fn inspect_request(
         &self,
         root: PathBuf,

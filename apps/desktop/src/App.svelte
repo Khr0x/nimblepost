@@ -229,6 +229,11 @@
   let defaultsTarget = $state<{ collection: Collection; folder: string } | null>(null);
   let DefaultsEditor = $state<typeof import('$lib/features/collections/DefaultsEditor.svelte').default | null>(null);
   let defaultsEditor = $state<{ requestClose: () => void } | null>(null);
+  let GitChanges = $state<typeof import('$lib/features/collections/GitChanges.svelte').default | null>(null);
+  let gitTarget = $state<Collection | null>(null);
+  let gitFilesVersion = $state(0);
+  let gitOpening = false;
+  let gitPanel = $state<{ requestClose: () => void } | null>(null);
   const variableContextKey = $derived(`${collection?.root ?? ''}:${selected}:${environment}:${draft?.revision ?? 0}:${envDraft?.revision ?? 0}:${defaultsVersion}`);
   let inherited = $state<VariablePreview[]>([]), loadedContext = $state(''), variableIssue = $state('');
   $effect(() => {
@@ -355,6 +360,7 @@
     if (!isTauri()) return;
     const listener = getCurrentWindow().onCloseRequested(async event => {
       if (defaultsTarget) { event.preventDefault(); defaultsEditor?.requestClose(); return; }
+      if (gitTarget) { event.preventDefault(); gitPanel?.requestClose(); return; }
       if (busy || loading || chunkLoading) { event.preventDefault(); error = 'Wait for the current operation before closing this window.'; return; }
       if (envDraft?.edits.length) { event.preventDefault(); error = 'Save or Reset your environment changes before closing this window.'; return; }
       finishRequestName();
@@ -379,6 +385,7 @@
   async function refreshHistory() { try { history = await api.history(); } catch (e) { history.warning = String(e); } }
   function queueExternalRefresh(roots = workspace?.collections.map(owner => owner.root) ?? []) {
     if (externalDisposed || closingWindow) return;
+    if (gitTarget && roots.includes(gitTarget.root)) gitFilesVersion++;
     for (const root of roots) pendingExternalRoots.add(root);
     if (!pendingExternalRoots.size) return;
     clearTimeout(externalTimer);
@@ -387,6 +394,7 @@
   async function refreshExternalCollections() {
     if (externalDisposed || closingWindow) return;
     // Defer batches while a user operation or dialog owns the current revisions.
+    if (gitTarget) return;
     if (busy || loading || chunkLoading || creation || deletingRequest || deletingWorkspace || closingRequestTab !== null || environmentOpen || addingEnvironment || defaultsTarget || requestNameEdit !== null) { externalTimer = setTimeout(() => { void refreshExternalCollections(); }, 500); return; }
     if (!workspace) return;
     const roots = new Set(pendingExternalRoots); pendingExternalRoots.clear();
@@ -713,6 +721,35 @@
     clearTimeout(externalTimer);
     await refreshExternalCollections();
     await tick(); await restoreTreeFocus(menuInvoker);
+  }
+
+  async function openGit(root: string) {
+    const owner = workspace?.collections.find(item => item.root === root);
+    if (!owner || owner.readOnly || owner.warning || busy || loading || gitTarget) return;
+    loading = true; gitOpening = true;
+    try {
+      GitChanges ??= (await import('$lib/features/collections/GitChanges.svelte')).default;
+      gitTarget = owner;
+    } catch { error = 'Git changes could not be opened. Please retry.'; }
+    finally {
+      loading = false; gitOpening = false;
+      if (!gitTarget) void restoreTreeFocus(menuInvoker);
+    }
+  }
+
+  function gitHasDraft(paths: string[]) {
+    return requestTabs.some(item => item.root === gitTarget?.root && paths.includes(item.path)
+      && (item.id === activeRequestTab ? !!draft?.edits.length : !!item.draft.edits.length))
+      || (collection?.root === gitTarget?.root && !!envDraft?.edits.length && paths.some(path => path.startsWith('environments/')));
+  }
+
+  async function closeGit() {
+    const target = menuInvoker;
+    gitTarget = null;
+    clearTimeout(externalTimer);
+    await refreshExternalCollections();
+    await tick();
+    await restoreTreeFocus(target);
   }
 
   function beginCreate(kind: 'workspace' | 'collection' | 'folder' | 'request', folder = '') {
@@ -1122,7 +1159,7 @@
       {#if workspace?.collections.length}
         <ContextMenu.Root>
           <CollectionTree bind:this={treeView} collections={collectionTrees} summaries={requestSummaries} {summariesPending} onvisible={visibleRequests} selectedRoot={!home ? collection?.root ?? '' : ''} selectedPath={!home ? selected : ''} activeSummary={draft ? { name: requestName, method: method.toUpperCase() } : null} locked={busy || loading} onchoose={chooseCollection} oncreate={createIn} oncontextmenu={treeMenuTarget} onactions={showTreeMenu} />
-          <ContextMenu.Content class="tree-menu" onCloseAutoFocus={(event) => { event.preventDefault(); if (!defaultsTarget && !creation && !deletingRequest) void restoreTreeFocus(menuInvoker); }}>
+          <ContextMenu.Content class="tree-menu" onCloseAutoFocus={(event) => { event.preventDefault(); if (!defaultsTarget && !gitTarget && !gitOpening && !creation && !deletingRequest) void restoreTreeFocus(menuInvoker); }}>
             {#if menuCollection || menuFolder}
               <ContextMenu.Item class="tree-menu-item" onSelect={() => openDefaults(menuRoot, menuPath)}><Settings2 size={14} aria-hidden="true" />Edit defaults</ContextMenu.Item>
               <ContextMenu.Item class="tree-menu-item" disabled={menuCannotCreate} onSelect={() => createIn(menuRoot, 'request', menuPath)}><Plus size={14} aria-hidden="true" />New request</ContextMenu.Item>
@@ -1130,6 +1167,7 @@
               {#if menuFolder}<ContextMenu.Item class="tree-menu-item" disabled={menuCannotCreate} onSelect={() => beginFolderRename(menuRoot, menuPath)}><Pencil size={14} aria-hidden="true" />Rename</ContextMenu.Item>{/if}
               {#if menuCollection}
                 <ContextMenu.Separator class="tree-menu-separator" />
+                <ContextMenu.Item class="tree-menu-item" disabled={menuCannotCreate} onSelect={() => openGit(menuRoot)}>Git changes</ContextMenu.Item>
                 <ContextMenu.Item class="tree-menu-item" onSelect={() => treeView?.collapse(menuRoot)}><Folder size={14} aria-hidden="true" />Collapse</ContextMenu.Item>
                 <ContextMenu.Separator class="tree-menu-separator" />
                 <ContextMenu.Item class="tree-menu-item" title="Remove from workspace · files are kept" onSelect={() => removeCollection(menuRoot)}><X size={14} aria-hidden="true" />Remove from workspace</ContextMenu.Item>
@@ -1239,6 +1277,9 @@
 </div>
 
 {#if defaultsTarget && DefaultsEditor}<DefaultsEditor bind:this={defaultsEditor} collection={defaultsTarget.collection} folder={defaultsTarget.folder} onclose={closeDefaults} onsaved={() => defaultsVersion++} />{/if}
+{#if gitTarget && GitChanges}
+  {#key gitTarget.root}<GitChanges bind:this={gitPanel} collection={gitTarget} filesVersion={gitFilesVersion} hasDraft={gitHasDraft} onclose={closeGit} />{/key}
+{/if}
 
 {#if creation}
   <Dialog.Root open={true} onOpenChange={(open) => { if (!open && !loading) cancelCreation(); }}><Dialog.Content class="modal creation-modal shadcn-modal motion-reduce:animate-none" showCloseButton={false} aria-label={titles[creation]} onInteractOutside={(event) => event.preventDefault()} onEscapeKeydown={(event) => { if (loading) event.preventDefault(); }} onOpenAutoFocus={(event) => { event.preventDefault(); document.querySelector<HTMLElement>('.shadcn-modal [autofocus]')?.focus(); }} onCloseAutoFocus={(event) => { event.preventDefault(); if (manageWorkspacesOpen) restoreWorkspaceManagerFocus(); else void restoreTreeFocus(creationReturnFocus); }}>

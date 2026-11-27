@@ -1,3 +1,4 @@
+use crate::git;
 use crate::recovery::{RecoverySnapshot, RecoveryView};
 use crate::session::{
     CollectionView, CreateRequestInput, DefaultsView, HistoryView, RenameRequestInput,
@@ -6,6 +7,19 @@ use crate::session::{
 };
 use tauri::{Manager, State};
 use tauri_plugin_dialog::DialogExt;
+
+#[tauri::command]
+pub(crate) async fn git_operation(
+    input: git::Request,
+    session: State<'_, Session>,
+) -> Result<git::Reply, git::Error> {
+    session.git_operation(input).await
+}
+
+#[tauri::command]
+pub(crate) fn git_cancel(operation_id: u32, session: State<'_, Session>) {
+    session.cancel_git(operation_id);
+}
 
 #[tauri::command]
 pub(crate) fn read_recovery(session: State<'_, Session>) -> RecoveryView {
