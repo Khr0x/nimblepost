@@ -2,13 +2,16 @@
   import { tick } from 'svelte';
   import { recordStage } from '../../desktop/native-profile';
   import { Button } from '$lib/components/ui/button';
-  import { ChevronLeft, ChevronRight, Plus, X } from '@lucide/svelte';
+  import { ChevronLeft, ChevronRight, GitCompareArrows, Plus, X } from '@lucide/svelte';
   import type { Draft } from './draft';
   import type { RequestTab } from './request-tabs';
 
-  let { tabs, activeId, draft, disabled = false, visible = true, onactivate, onclose, onnew }: {
+  let { tabs, activeId, draft, gitTabs, activeGitRoot, disabled = false, visible = true,
+    onactivate, onclose, onnew, onactivategit, onclosegit }: {
     tabs: RequestTab[]; activeId: number; draft: Draft | null; disabled?: boolean; visible?: boolean;
+    gitTabs: { id: string; collection: { root: string; name: string } }[]; activeGitRoot: string | null;
     onactivate: (id: number) => Promise<void>; onclose: (id: number) => Promise<void>; onnew: () => Promise<void>;
+    onactivategit: (root: string) => Promise<void>; onclosegit: (root: string) => Promise<void>;
   } = $props();
   const isEdited = $derived(!!draft?.edits.length);
   let requestTabsList = $state<HTMLDivElement | null>(null);
@@ -35,7 +38,7 @@
   }
   $effect(() => {
     const list = requestTabsList;
-    const id = activeId;
+    const id = activeGitRoot ? gitTabs.find(tab => tab.collection.root === activeGitRoot)?.id : activeId;
     if (!list || !visible) return;
     void (async () => {
       await tick();
@@ -54,25 +57,39 @@
   });
 </script>
 
-<nav class="request-tabs" aria-label="Request tabs">
+<nav class="request-tabs" aria-label="Workspace tabs">
   <div class="request-tabs-list" bind:this={requestTabsList} use:observeRequestTabs onscroll={updateTabNavigation}>
     <fieldset class="request-tabs-track" {disabled}>
-      <legend class="sr-only">Open request tabs</legend>
+      <legend class="sr-only">Open workspace tabs</legend>
       {#each tabs as item (item.id)}
         {@const current = item.id === activeId}
+        {@const active = current && activeGitRoot === null}
         {@const value = current ? draft?.value : item.draft.value}
         {@const name = value?.info?.name ?? 'Untitled'}
-        <div class="request-document" class:active={current} data-tab-id={item.id}>
-          <Button variant="ghost" class="request-tab-trigger" title={name} aria-label={`Open request tab ${item.id}: ${name}`} aria-pressed={current} onclick={() => onactivate(item.id)}><span class="http-method" data-method={value?.http?.method ?? 'GET'}>{value?.http?.method ?? 'GET'}</span><span class="request-tab-name">{name}</span>{#if current ? isEdited : item.draft.edits.length}<span class="request-dirty" aria-label="Unsaved changes"></span>{/if}</Button>
+        <div class="request-document" class:active data-tab-id={item.id}>
+          <Button variant="ghost" class="request-tab-trigger" title={name} aria-label={`Open request tab ${item.id}: ${name}`} aria-pressed={active} onclick={() => onactivate(item.id)}><span class="http-method" data-method={value?.http?.method ?? 'GET'}>{value?.http?.method ?? 'GET'}</span><span class="request-tab-name">{name}</span>{#if current ? isEdited : item.draft.edits.length}<span class="request-dirty" aria-label="Unsaved changes"></span>{/if}</Button>
           <Button variant="ghost" class="request-tab-close" aria-label={`Close request tab ${item.id}: ${name}`} title="Close tab" onclick={() => onclose(item.id)}><X size={12} aria-hidden="true" /></Button>
+        </div>
+      {/each}
+      {#each gitTabs as item (item.id)}
+        {@const active = item.collection.root === activeGitRoot}
+        <div class="request-document" class:active data-tab-id={item.id}>
+          <Button variant="ghost" class="request-tab-trigger" id={item.id + '-tab'} aria-controls={item.id}
+            title={'Git Changes · ' + item.collection.name} aria-label={'Open Git Changes for ' + item.collection.name}
+            aria-pressed={active} onclick={() => onactivategit(item.collection.root)}>
+            <GitCompareArrows size={14} aria-hidden="true" />
+            <span class="request-tab-name">Git Changes{gitTabs.length > 1 ? ' · ' + item.collection.name : ''}</span>
+          </Button>
+          <Button variant="ghost" class="request-tab-close" aria-label={'Close Git Changes for ' + item.collection.name}
+            title="Close tab" onclick={() => onclosegit(item.collection.root)}><X size={12} aria-hidden="true" /></Button>
         </div>
       {/each}
     </fieldset>
   </div>
   {#if tabsOverflow}
     <div class="request-tabs-navigation">
-      <Button variant="ghost" size="icon-sm" class="size-[28px] text-muted-foreground" aria-label="Scroll request tabs left" title="Previous tabs" disabled={!tabsCanScrollLeft} onclick={() => scrollRequestTabs(-1)}><ChevronLeft aria-hidden="true" /></Button>
-      <Button variant="ghost" size="icon-sm" class="size-[28px] text-muted-foreground" aria-label="Scroll request tabs right" title="Next tabs" disabled={!tabsCanScrollRight} onclick={() => scrollRequestTabs(1)}><ChevronRight aria-hidden="true" /></Button>
+      <Button variant="ghost" size="icon-sm" class="size-[28px] text-muted-foreground" aria-label="Scroll tabs left" title="Previous tabs" disabled={!tabsCanScrollLeft} onclick={() => scrollRequestTabs(-1)}><ChevronLeft aria-hidden="true" /></Button>
+      <Button variant="ghost" size="icon-sm" class="size-[28px] text-muted-foreground" aria-label="Scroll tabs right" title="Next tabs" disabled={!tabsCanScrollRight} onclick={() => scrollRequestTabs(1)}><ChevronRight aria-hidden="true" /></Button>
     </div>
   {/if}
   <Button variant="ghost" size="icon-sm" class="size-[28px] shrink-0 text-muted-foreground" aria-label="New request" title="New untitled request" {disabled} onclick={onnew}><Plus aria-hidden="true" /></Button>

@@ -31,7 +31,7 @@
   import * as Select from '$lib/components/ui/select';
   import * as ContextMenu from '$lib/components/ui/context-menu';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
-  import { Check, ChevronDown, Copy, Folder, FolderOpen, FolderPlus, History, House, LoaderCircle, Pencil, Plus, RotateCcw, Save, Send, Settings2, Trash2, X } from '@lucide/svelte';
+  import { Check, ChevronDown, Copy, Folder, FolderOpen, FolderPlus, GitCompareArrows, History, House, LoaderCircle, Pencil, Plus, RotateCcw, Save, Send, Settings2, Trash2, X } from '@lucide/svelte';
 
   let theme = $state<Theme>(readTheme());
   let sidebarWidth = $state(readSidebarWidth());
@@ -230,10 +230,14 @@
   let DefaultsEditor = $state<typeof import('$lib/features/collections/DefaultsEditor.svelte').default | null>(null);
   let defaultsEditor = $state<{ requestClose: () => void } | null>(null);
   let GitChanges = $state<typeof import('$lib/features/collections/GitChanges.svelte').default | null>(null);
-  let gitTarget = $state<Collection | null>(null);
-  let gitFilesVersion = $state(0);
+  type GitTab = { id: string; collection: Collection; filesVersion: number; operating: boolean; panel?: { cancel: () => Promise<void> } };
+  let gitTabs = $state<GitTab[]>([]);
+  let activeGitRoot = $state<string | null>(null);
+  const activeGitTab = $derived(gitTabs.find(tab => tab.collection.root === activeGitRoot));
+  const gitOperating = $derived(gitTabs.some(tab => tab.operating));
+  const workspaceBusy = $derived(busy || loading || gitOperating);
+  let nextGitTab = 0;
   let gitOpening = false;
-  let gitPanel = $state<{ requestClose: () => void } | null>(null);
   const variableContextKey = $derived(`${collection?.root ?? ''}:${selected}:${environment}:${draft?.revision ?? 0}:${envDraft?.revision ?? 0}:${defaultsVersion}`);
   let inherited = $state<VariablePreview[]>([]), loadedContext = $state(''), variableIssue = $state('');
   $effect(() => {
@@ -351,6 +355,7 @@
     const listener = listen<CollectionChange>('collection-changed', ({ payload }) => {
       lastWatchWarning = payload.warning ? `File notifications failed: ${payload.warning}. Use Refresh collections to retry.` : '';
       watchWarning = lastWatchWarning;
+      for (const tab of gitTabs) if (payload.roots.includes(tab.collection.root)) tab.filesVersion++;
       queueExternalRefresh(payload.roots);
     }).catch(e => { if (!externalDisposed) { lastWatchWarning = `File notifications are unavailable: ${String(e)}. Use Refresh collections.`; watchWarning = lastWatchWarning; } });
     void listener.then(() => { if (!externalDisposed) void restoreWorkspace(); });
@@ -360,7 +365,8 @@
     if (!isTauri()) return;
     const listener = getCurrentWindow().onCloseRequested(async event => {
       if (defaultsTarget) { event.preventDefault(); defaultsEditor?.requestClose(); return; }
-      if (gitTarget) { event.preventDefault(); gitPanel?.requestClose(); return; }
+      const runningGitTab = gitTabs.find(tab => tab.operating);
+      if (runningGitTab) { event.preventDefault(); void runningGitTab.panel?.cancel(); return; }
       if (busy || loading || chunkLoading) { event.preventDefault(); error = 'Wait for the current operation before closing this window.'; return; }
       if (envDraft?.edits.length) { event.preventDefault(); error = 'Save or Reset your environment changes before closing this window.'; return; }
       finishRequestName();
@@ -385,7 +391,6 @@
   async function refreshHistory() { try { history = await api.history(); } catch (e) { history.warning = String(e); } }
   function queueExternalRefresh(roots = workspace?.collections.map(owner => owner.root) ?? []) {
     if (externalDisposed || closingWindow) return;
-    if (gitTarget && roots.includes(gitTarget.root)) gitFilesVersion++;
     for (const root of roots) pendingExternalRoots.add(root);
     if (!pendingExternalRoots.size) return;
     clearTimeout(externalTimer);
@@ -393,9 +398,7 @@
   }
   async function refreshExternalCollections() {
     if (externalDisposed || closingWindow) return;
-    // Defer batches while a user operation or dialog owns the current revisions.
-    if (gitTarget) return;
-    if (busy || loading || chunkLoading || creation || deletingRequest || deletingWorkspace || closingRequestTab !== null || environmentOpen || addingEnvironment || defaultsTarget || requestNameEdit !== null) { externalTimer = setTimeout(() => { void refreshExternalCollections(); }, 500); return; }
+    if (workspaceBusy || chunkLoading || creation || deletingRequest || deletingWorkspace || closingRequestTab !== null || environmentOpen || addingEnvironment || defaultsTarget || requestNameEdit !== null) { externalTimer = setTimeout(() => { void refreshExternalCollections(); }, 500); return; }
     if (!workspace) return;
     const roots = new Set(pendingExternalRoots); pendingExternalRoots.clear();
     if (!roots.size) return;
@@ -407,6 +410,10 @@
       watchWarning = result.watchWarning || lastWatchWarning;
       for (const root of roots) { delete requestSummaries[root]; summaryAttempts.delete(root); }
       workspace.collections = result.collections;
+      for (const tab of gitTabs) {
+        const owner = result.collections.find(item => item.root === tab.collection.root);
+        if (owner) tab.collection = owner;
+      }
       if (collection) collection = result.collections.find(owner => owner.root === collection?.root) ?? collection;
       for (const item of requestTabs) {
         if (!item.root || !item.path || !roots.has(item.root)) continue;
@@ -472,7 +479,8 @@
     if (item && draft) Object.assign(item, { draft, environment, baseUrl, response, body, offset, decoder: response?.text ? decoder : undefined });
   }
   async function newUntitled() {
-    if (defaultsTarget || busy || loading || chunkLoading || envDraft?.edits.length) return;
+    if (defaultsTarget || workspaceBusy || chunkLoading || envDraft?.edits.length) return;
+    activeGitRoot = null;
     stashRequestTab();
     draft = untitledDraft(); selected = ''; requestName = 'Untitled'; method = 'GET'; url = '';
     response = null; body = ''; offset = 0; decoder = new TextDecoder(); error = ''; notice = ''; home = false; manageWorkspacesOpen = false; environmentOpen = false; envDraft = null;
@@ -515,8 +523,13 @@
       if (previousRoot && previousRoot !== collection?.root) updateCollection(await api.selectCollection(previousRoot));
     } finally { loading = false; }
   }
+  async function activateEditorTab(id: number) {
+    if (workspaceBusy || chunkLoading || !canLeaveEnvironment()) return;
+    activeGitRoot = null;
+    await activateRequestTab(id);
+  }
   async function closeRequestTab(id: number) {
-    if (busy || loading || chunkLoading) return;
+    if (workspaceBusy || chunkLoading) return;
     stashRequestTab();
     const item = requestTabs.find(item => item.id === id);
     if (!item) return;
@@ -725,35 +738,59 @@
 
   async function openGit(root: string) {
     const owner = workspace?.collections.find(item => item.root === root);
-    if (!owner || owner.readOnly || owner.warning || busy || loading || gitTarget) return;
-    loading = true; gitOpening = true;
+    if (!owner || owner.readOnly || owner.warning || workspaceBusy || chunkLoading || !canLeaveEnvironment()) return;
+    gitOpening = true;
     try {
-      GitChanges ??= (await import('$lib/features/collections/GitChanges.svelte')).default;
-      gitTarget = owner;
-    } catch { error = 'Git changes could not be opened. Please retry.'; }
-    finally {
-      loading = false; gitOpening = false;
-      if (!gitTarget) void restoreTreeFocus(menuInvoker);
+      if (!gitTabs.some(tab => tab.collection.root === root)) {
+        loading = true;
+        try {
+          GitChanges ??= (await import('$lib/features/collections/GitChanges.svelte')).default;
+          gitTabs.push({ id: 'git-changes-' + ++nextGitTab, collection: owner, filesVersion: 0, operating: false });
+        } finally { loading = false; }
+      }
+      await activateGitTab(root);
+    } catch {
+      error = 'Git changes could not be opened. Please retry.';
+      await restoreTreeFocus(menuInvoker);
+    } finally { gitOpening = false; }
+  }
+
+  async function activateGitTab(root: string) {
+    const tab = gitTabs.find(item => item.collection.root === root);
+    if (!tab || workspaceBusy || chunkLoading || !canLeaveEnvironment()) return;
+    finishRequestName();
+    home = false;
+    manageWorkspacesOpen = false;
+    environmentOpen = false;
+    envDraft = null;
+    activeGitRoot = root;
+    await tick();
+    const trigger = document.getElementById(tab.id + '-tab');
+    const focusTarget = trigger && !trigger.matches(':disabled') ? trigger : document.getElementById(tab.id)?.querySelector('h2');
+    focusTarget?.focus();
+  }
+
+  function gitHasDraft(root: string, paths: string[]) {
+    return requestTabs.some(item => item.root === root && paths.includes(item.path)
+      && (item.id === activeRequestTab ? !!draft?.edits.length : !!item.draft.edits.length))
+      || (collection?.root === root && !!envDraft?.edits.length && paths.some(path => path.startsWith('environments/')));
+  }
+
+  async function closeGitTab(root: string) {
+    if (workspaceBusy || chunkLoading) return;
+    gitTabs = gitTabs.filter(tab => tab.collection.root !== root);
+    if (activeGitRoot === root) activeGitRoot = null;
+    await tick();
+    if (activeGitTab) {
+      document.getElementById(activeGitTab.id + '-tab')?.focus();
+    } else {
+      const tab = document.querySelector<HTMLElement>('[data-tab-id="' + activeRequestTab + '"] .request-tab-trigger');
+      (tab ?? document.querySelector<HTMLElement>('.request-tabs [aria-label="New request"]'))?.focus();
     }
   }
 
-  function gitHasDraft(paths: string[]) {
-    return requestTabs.some(item => item.root === gitTarget?.root && paths.includes(item.path)
-      && (item.id === activeRequestTab ? !!draft?.edits.length : !!item.draft.edits.length))
-      || (collection?.root === gitTarget?.root && !!envDraft?.edits.length && paths.some(path => path.startsWith('environments/')));
-  }
-
-  async function closeGit() {
-    const target = menuInvoker;
-    gitTarget = null;
-    clearTimeout(externalTimer);
-    await refreshExternalCollections();
-    await tick();
-    await restoreTreeFocus(target);
-  }
-
   function beginCreate(kind: 'workspace' | 'collection' | 'folder' | 'request', folder = '') {
-    if (busy || loading || !canLeave() || (kind !== 'collection' && kind !== 'workspace' && (!collection || collection.readOnly))) return;
+    if (workspaceBusy || !canLeave() || (kind !== 'collection' && kind !== 'workspace' && (!collection || collection.readOnly))) return;
     creationReturnFocus = kind === 'workspace' ? workspaceMenuTrigger : document.activeElement instanceof HTMLElement ? (document.activeElement.closest('[role="menu"]') ? menuInvoker : rememberTreeFocus(document.activeElement)) : null;
     creatingSaveCollection = false;
     creationName = ''; creationFile = ''; creationMethod = 'GET'; creationUrl = ''; creationError = ''; creationFolder = folder; creationSource = ''; creation = kind;
@@ -814,7 +851,7 @@
     }
   }
   function treeMenuTarget(event: MouseEvent | PointerEvent) {
-    if (busy || loading) { event.preventDefault(); return; }
+    if (workspaceBusy) { event.preventDefault(); return; }
     const row = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-tree-path]') : null;
     if (!row) { event.preventDefault(); return; }
     menuInvoker = rememberTreeFocus(event.target instanceof Element ? event.target.closest<HTMLElement>('button') ?? row.querySelector('button') : null);
@@ -832,7 +869,7 @@
   }
   function showTreeMenu(event: MouseEvent) {
     event.preventDefault(); event.stopPropagation();
-    if (busy || loading) return;
+    if (workspaceBusy) return;
     const button = event.currentTarget as HTMLElement;
     const rect = button.getBoundingClientRect();
     button.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: rect.right, clientY: rect.bottom }));
@@ -855,11 +892,16 @@
     }
   }
   function goHome() {
-    if (busy || loading || !canLeave()) return;
+    if (workspaceBusy || !canLeave()) return;
+    activeGitRoot = null;
     manageWorkspacesOpen = false; environmentOpen = false; home = true; error = ''; notice = '';
   }
   async function applyWorkspace(result: WorkspaceView, recovered: RecoverySnapshot | null = null) {
     const renderStarted = import.meta.env.VITE_NATIVE_VALIDATION === '1' ? performance.now() : 0;
+    gitTabs = workspace?.activeWorkspaceId === result.activeWorkspaceId
+      ? gitTabs.filter(tab => result.collections.some(owner => owner.root === tab.collection.root && !owner.readOnly))
+      : [];
+    if (!gitTabs.some(tab => tab.collection.root === activeGitRoot)) activeGitRoot = null;
     requestSummaries = {};
     summaryAttempts.clear(); visibleSummaryRequests = [];
     requestTabs = []; activeRequestTab = 0;
@@ -938,14 +980,14 @@
     }
   }
   async function changeWorkspace(id: number) {
-    if (id === workspace?.activeWorkspaceId || busy || loading || !canLeave()) return;
+    if (id === workspace?.activeWorkspaceId || workspaceBusy || !canLeave()) return;
     loading = true; error = '';
     try { await applyWorkspace(await api.selectWorkspace(id)); manageWorkspacesOpen = false; }
     catch (e) { error = String(e); }
     finally { loading = false; }
   }
   async function openWorkspaceManager() {
-    if (busy || loading || !canLeaveEnvironment()) return;
+    if (workspaceBusy || !canLeaveEnvironment()) return;
     error = '';
     if (!WorkspaceManager) {
       loading = true;
@@ -960,7 +1002,8 @@
   async function closeWorkspaceManager() {
     manageWorkspacesOpen = false; error = '';
     await tick();
-    (workbenchOpen ? document.querySelector<HTMLElement>('[aria-label="Request URL"]') : workspaceMenuTrigger)?.focus();
+    (activeGitTab ? document.getElementById(activeGitTab.id + '-tab') :
+      workbenchOpen ? document.querySelector<HTMLElement>('[aria-label="Request URL"]') : workspaceMenuTrigger)?.focus();
   }
   function restoreWorkspaceManagerFocus() {
     (creationReturnFocus?.isConnected ? creationReturnFocus : document.querySelector<HTMLElement>('#workspace-manager-heading'))?.focus();
@@ -987,8 +1030,8 @@
     finally { loading = false; }
   }
   async function chooseCollection(root: string, path?: string) {
-    if (busy || loading || !canLeaveEnvironment()) return false;
-    if (collection?.root === root) { home = false; manageWorkspacesOpen = false; environmentOpen = false; envDraft = null; if (path) await select(path); return true; }
+    if (workspaceBusy || !canLeaveEnvironment()) return false;
+    if (collection?.root === root) { activeGitRoot = null; home = false; manageWorkspacesOpen = false; environmentOpen = false; envDraft = null; if (path) await select(path); return true; }
     if (!canLeave()) return false;
     loading = true; error = '';
     try { await useCollection(await api.selectCollection(root), false, path); manageWorkspacesOpen = false; return true; }
@@ -1000,7 +1043,7 @@
     beginCreate(kind, folder);
   }
   async function removeCollection(root: string) {
-    if (busy || loading || !canLeave()) return;
+    if (workspaceBusy || !canLeave()) return;
     loading = true; error = '';
     try { await applyWorkspace(await api.removeCollection(root)); }
     catch (e) { error = String(e); }
@@ -1011,6 +1054,7 @@
     }
   }
   async function useCollection(result: Collection, example = false, path?: string) {
+    activeGitRoot = null;
     environmentOpen = false; envDraft = null;
     requestTabs = []; activeRequestTab = 0;
     home = false; updateCollection(result); selected = ''; response = null; body = ''; baseUrl = ''; draft = null; secrets = {}; notice = '';
@@ -1060,6 +1104,7 @@
         const input = { revision: creationRevision, name: creationName.trim(), fileName: creationFile };
         const result = creation === 'rename' ? await api.renameRequest(input) : creation === 'duplicate' ? await api.duplicateRequest(input) : await api.createRequest({ name: input.name, folder: creationFolder, method: creationMethod, url: creationUrl.trim() });
         stashRequestTab();
+        activeGitRoot = null;
         activeRequestTab = creation === 'rename' ? requestTabs.find(item => item.root === collection?.root && item.path === creationSource)?.id ?? 0 : 0;
         home = false; manageWorkspacesOpen = false; updateCollection(result.collection); selected = result.path; response = null; body = ''; offset = 0;
         accept(result.request); notice = creation === 'rename' ? 'Request renamed.' : creation === 'duplicate' ? 'Request duplicated.' : 'Request created and saved.';
@@ -1074,7 +1119,7 @@
   }
 
   async function open(example = false) {
-    if (busy || loading) return;
+    if (workspaceBusy) return;
     if (!canLeave()) return;
     loading = true; error = '';
     try {
@@ -1129,16 +1174,16 @@
   }
 
   async function cancel() { try { await api.cancel(); } catch (e) { error = String(e); } }
-  function shortcut(e: KeyboardEvent) { if (defaultsTarget || creation || addingEnvironment || deletingWorkspace || deletingRequest || manageWorkspacesOpen || closingRequestTab !== null) return; if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); void send(); } if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); if (environmentOpen) void saveEnvironment(); else void saveRequest(); } }
+  function shortcut(e: KeyboardEvent) { if (activeGitTab || gitOperating || defaultsTarget || creation || addingEnvironment || deletingWorkspace || deletingRequest || manageWorkspacesOpen || closingRequestTab !== null) return; if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); void send(); } if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); if (environmentOpen) void saveEnvironment(); else void saveRequest(); } }
   const size = (bytes: number) => bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
 </script>
 
 <svelte:window onkeydown={shortcut} bind:innerWidth={viewportWidth} />
 
-<div class="app-shell" class:has-recovery-warning={!!recoveryWarning || !!watchWarning}>
+<div class="app-shell" class:has-recovery-warning={!!recoveryWarning || !!watchWarning} class:git-operating={gitOperating && !busy && !loading}>
   <header class="topbar" data-tauri-drag-region>
-    <div class="workspace-picker"><Button variant="ghost" size="icon-sm" aria-label="Home" aria-current={home ? 'page' : undefined} title="Home" onclick={goHome} disabled={busy || loading}><House aria-hidden="true" /></Button><DropdownMenu.Root>
-        <DropdownMenu.Trigger bind:ref={workspaceMenuTrigger} class="workspace-select" aria-label="Workspace" title="Switch workspace" disabled={busy || loading}><span class="workspace-name">{workspaceOptions.find(item => item.value === String(workspace?.activeWorkspaceId ?? 1))?.label ?? 'My Workspace'}</span><ChevronDown size={12} aria-hidden="true" /></DropdownMenu.Trigger>
+    <div class="workspace-picker"><Button variant="ghost" size="icon-sm" aria-label="Home" aria-current={home ? 'page' : undefined} title="Home" onclick={goHome} disabled={workspaceBusy}><House aria-hidden="true" /></Button><DropdownMenu.Root>
+        <DropdownMenu.Trigger bind:ref={workspaceMenuTrigger} class="workspace-select" aria-label="Workspace" title="Switch workspace" disabled={workspaceBusy}><span class="workspace-name">{workspaceOptions.find(item => item.value === String(workspace?.activeWorkspaceId ?? 1))?.label ?? 'My Workspace'}</span><ChevronDown size={12} aria-hidden="true" /></DropdownMenu.Trigger>
         <DropdownMenu.Content class="tree-menu workspace-selector-menu motion-reduce:animate-none" align="start" sideOffset={6} onCloseAutoFocus={(event) => { if (creation || manageWorkspacesOpen) event.preventDefault(); }}>
           <div class="workspace-options"><DropdownMenu.RadioGroup bind:value={workspaceValue} onValueChange={async (value) => { await changeWorkspace(Number(value)); workspaceValue = String(workspace?.activeWorkspaceId ?? 1); }}>
             {#each workspaceOptions as item (item.value)}<DropdownMenu.RadioItem class="workspace-option" value={item.value} closeOnSelect={true} title={item.label}>{#snippet children()}<span class="workspace-option-name">{item.label}</span>{/snippet}</DropdownMenu.RadioItem>{/each}
@@ -1153,13 +1198,13 @@
   {#if recoveryWarning || watchWarning}<div>{#if recoveryWarning}<div class="error recovery-warning" role="alert">{recoveryWarning}</div>{/if}{#if watchWarning}<div class="error recovery-warning" role="alert">{watchWarning}</div>{/if}</div>{/if}
   <div class="workspace" class:environment-workspace={environmentOpen} class:resizing-sidebar={resizingSidebar} style:--sidebar-width={`${visibleSidebarWidth}px`}>
     <aside id="collection-sidebar" hidden={environmentOpen}>
-      <div class="aside-heading"><span class="aside-title"><Folder size={14} aria-hidden="true" />Collections</span><div class="collection-actions"><Button variant="ghost" size="icon-sm" aria-label="Refresh collections" title="Refresh collections from disk" onclick={() => queueExternalRefresh()} disabled={busy || loading}><RotateCcw aria-hidden="true" /></Button><Button variant="ghost" size="icon-sm" aria-label="New collection" title="New collection" onclick={() => beginCreate('collection')} disabled={busy || loading}><FolderPlus aria-hidden="true" /></Button><Button variant="ghost" size="icon-sm" aria-label="Open collection" title="Open collection" onclick={() => open()} disabled={busy || loading}><FolderOpen aria-hidden="true" /></Button></div></div>
+      <div class="aside-heading"><span class="aside-title"><Folder size={14} aria-hidden="true" />Collections</span><div class="collection-actions"><Button variant="ghost" size="icon-sm" aria-label="Refresh collections" title="Refresh collections from disk" onclick={() => queueExternalRefresh()} disabled={workspaceBusy}><RotateCcw aria-hidden="true" /></Button><Button variant="ghost" size="icon-sm" aria-label="New collection" title="New collection" onclick={() => beginCreate('collection')} disabled={workspaceBusy}><FolderPlus aria-hidden="true" /></Button><Button variant="ghost" size="icon-sm" aria-label="Open collection" title="Open collection" onclick={() => open()} disabled={workspaceBusy}><FolderOpen aria-hidden="true" /></Button></div></div>
       <span class="sr-only" role="status">{busy ? 'Request in progress. Collections are temporarily unavailable.' : loading ? 'Loading. Collections are temporarily unavailable.' : ''}</span>
       {#if workspace?.warning}<p class="workspace-warning" role="alert">{workspace.warning}</p>{/if}
       {#if workspace?.collections.length}
         <ContextMenu.Root>
-          <CollectionTree bind:this={treeView} collections={collectionTrees} summaries={requestSummaries} {summariesPending} onvisible={visibleRequests} selectedRoot={!home ? collection?.root ?? '' : ''} selectedPath={!home ? selected : ''} activeSummary={draft ? { name: requestName, method: method.toUpperCase() } : null} locked={busy || loading} onchoose={chooseCollection} oncreate={createIn} oncontextmenu={treeMenuTarget} onactions={showTreeMenu} />
-          <ContextMenu.Content class="tree-menu" onCloseAutoFocus={(event) => { event.preventDefault(); if (!defaultsTarget && !gitTarget && !gitOpening && !creation && !deletingRequest) void restoreTreeFocus(menuInvoker); }}>
+          <CollectionTree bind:this={treeView} collections={collectionTrees} summaries={requestSummaries} {summariesPending} onvisible={visibleRequests} selectedRoot={!home ? collection?.root ?? '' : ''} selectedPath={!home ? selected : ''} activeSummary={draft ? { name: requestName, method: method.toUpperCase() } : null} locked={workspaceBusy} onchoose={chooseCollection} oncreate={createIn} oncontextmenu={treeMenuTarget} onactions={showTreeMenu} />
+          <ContextMenu.Content class="tree-menu" onCloseAutoFocus={(event) => { event.preventDefault(); if (!defaultsTarget && !gitOpening && !creation && !deletingRequest) void restoreTreeFocus(menuInvoker); }}>
             {#if menuCollection || menuFolder}
               <ContextMenu.Item class="tree-menu-item" onSelect={() => openDefaults(menuRoot, menuPath)}><Settings2 size={14} aria-hidden="true" />Edit defaults</ContextMenu.Item>
               <ContextMenu.Item class="tree-menu-item" disabled={menuCannotCreate} onSelect={() => createIn(menuRoot, 'request', menuPath)}><Plus size={14} aria-hidden="true" />New request</ContextMenu.Item>
@@ -1167,7 +1212,7 @@
               {#if menuFolder}<ContextMenu.Item class="tree-menu-item" disabled={menuCannotCreate} onSelect={() => beginFolderRename(menuRoot, menuPath)}><Pencil size={14} aria-hidden="true" />Rename</ContextMenu.Item>{/if}
               {#if menuCollection}
                 <ContextMenu.Separator class="tree-menu-separator" />
-                <ContextMenu.Item class="tree-menu-item" disabled={menuCannotCreate} onSelect={() => openGit(menuRoot)}>Git changes</ContextMenu.Item>
+                <ContextMenu.Item class="tree-menu-item" disabled={menuCannotCreate} onSelect={() => openGit(menuRoot)}><GitCompareArrows size={14} aria-hidden="true" />Git changes</ContextMenu.Item>
                 <ContextMenu.Item class="tree-menu-item" onSelect={() => treeView?.collapse(menuRoot)}><Folder size={14} aria-hidden="true" />Collapse</ContextMenu.Item>
                 <ContextMenu.Separator class="tree-menu-separator" />
                 <ContextMenu.Item class="tree-menu-item" title="Remove from workspace · files are kept" onSelect={() => removeCollection(menuRoot)}><X size={14} aria-hidden="true" />Remove from workspace</ContextMenu.Item>
@@ -1182,7 +1227,7 @@
         </ContextMenu.Root>
         <div class="aside-foot"><Folder size={12} aria-hidden="true" /> Files on your machine</div>
       {:else}
-        <div class="sidebar-empty"><p>No collections found.</p><div class="sidebar-empty-actions"><Button variant="link" size="xs" class="h-auto rounded-sm p-0 text-[12px] font-normal text-[var(--brand-text)] underline underline-offset-2" aria-label="Create collection" onclick={() => beginCreate('collection')} disabled={busy || loading}>Create</Button><span>or</span><Button variant="link" size="xs" class="h-auto rounded-sm p-0 text-[12px] font-normal text-[var(--brand-text)] underline underline-offset-2" aria-label="Open collection" onclick={() => open()} disabled={busy || loading}>Open</Button><span>Collection.</span></div></div>
+        <div class="sidebar-empty"><p>No collections found.</p><div class="sidebar-empty-actions"><Button variant="link" size="xs" class="h-auto rounded-sm p-0 text-[12px] font-normal text-[var(--brand-text)] underline underline-offset-2" aria-label="Create collection" onclick={() => beginCreate('collection')} disabled={workspaceBusy}>Create</Button><span>or</span><Button variant="link" size="xs" class="h-auto rounded-sm p-0 text-[12px] font-normal text-[var(--brand-text)] underline underline-offset-2" aria-label="Open collection" onclick={() => open()} disabled={workspaceBusy}>Open</Button><span>Collection.</span></div></div>
       {/if}
       <!-- ARIA window splitters use focusable separators; Svelte classifies the role as static. -->
       <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
@@ -1200,8 +1245,11 @@
       <div class="request-view" hidden={manageWorkspacesOpen || environmentOpen}>
       {#if !home}
         <div class="request-toolbar">
-          <RequestTabs tabs={requestTabs} activeId={activeRequestTab} {draft} disabled={busy || loading || chunkLoading} visible={!manageWorkspacesOpen && !environmentOpen} onactivate={activateRequestTab} onclose={closeRequestTab} onnew={newUntitled} />
-          {#if collection}<div class="request-environment"><DropdownMenu.Root>
+          <RequestTabs tabs={requestTabs} activeId={activeRequestTab} {draft} {gitTabs} {activeGitRoot}
+            disabled={workspaceBusy || chunkLoading} visible={!manageWorkspacesOpen && !environmentOpen}
+            onactivate={activateEditorTab} onclose={closeRequestTab} onnew={newUntitled}
+            onactivategit={activateGitTab} onclosegit={closeGitTab} />
+          {#if collection && !activeGitTab}<div class="request-environment"><DropdownMenu.Root>
             <DropdownMenu.Trigger bind:ref={environmentMenuTrigger} class="workspace-select environment-select" aria-label="Environment" title="Switch environment" disabled={busy || loading}><span class="workspace-name">{environment || 'No environment'}</span><ChevronDown size={12} aria-hidden="true" /></DropdownMenu.Trigger>
             <DropdownMenu.Content class="tree-menu workspace-selector-menu motion-reduce:animate-none" align="end" sideOffset={6} onCloseAutoFocus={(event) => { if (environmentOpen || addingEnvironment) event.preventDefault(); }}>
               <div class="workspace-options"><DropdownMenu.RadioGroup value={String((collection?.environments ?? []).indexOf(environment) + 1)} onValueChange={(value) => { void chooseEnvironment(collection?.environments[Number(value) - 1] ?? ''); }}>
@@ -1215,7 +1263,7 @@
         </div>
       {/if}
       {#if workbenchOpen}
-        <div class="request-content" bind:clientHeight={responseAreaHeight} class:resizing-response={resizingResponse}>
+        <div class="request-content" hidden={!!activeGitTab} bind:clientHeight={responseAreaHeight} class:resizing-response={resizingResponse}>
         <div class="request-inputs">
         <div class="request-heading">
           <Breadcrumb.Root class="request-breadcrumb" aria-label="Request path"><Breadcrumb.List class="flex-nowrap">{#if !untitled && collection}<Breadcrumb.Item><span title={collection.name}>{collection.name}</span></Breadcrumb.Item>{#each selected.split('/').slice(0, -1) as folder}<Breadcrumb.Separator /><Breadcrumb.Item><span title={folder}>{folder}</span></Breadcrumb.Item>{/each}{:else}<Breadcrumb.Item><span>Unsaved request</span></Breadcrumb.Item>{/if}<Breadcrumb.Separator /><Breadcrumb.Item aria-current="page">{#if requestNameEdit !== null}<Input class="request-name-input" aria-label="Edit request name" value={requestNameEdit} maxlength={128} oninput={(event) => requestNameEdit = event.currentTarget.value} onblur={finishRequestName} onkeydown={requestNameKey} />{:else}<h1 aria-label={requestName || 'Untitled'}><Button variant="ghost" class="request-name-trigger" title={`${requestName || 'Untitled'} · Double-click to rename`} aria-label="Edit request name" disabled={busy || loading || (!untitled && collection?.readOnly)} ondblclick={editRequestName} onkeydown={(event) => { if (event.key === 'Enter' || event.key === 'F2') { event.preventDefault(); void editRequestName(); } }}>{requestName || 'Untitled'}</Button></h1>{/if}</Breadcrumb.Item></Breadcrumb.List></Breadcrumb.Root>
@@ -1260,8 +1308,16 @@
           </div>
         {/if}
         </div>
-      {:else}
+      {:else if !activeGitTab}
         <div class="welcome"><span class="eyebrow">{welcomeCollection ? welcomeCollection.name : 'API DEVELOPMENT, LOCALLY'}</span><h1>{#if welcomeCollection}Your collection is ready.{:else if workspace?.collections.length}Choose a collection.{:else}A small client.<br />Your whole workflow.{/if}</h1><p>{#if welcomeCollection}Create your first request to get started.{:else if workspace?.collections.length}Select a collection in the sidebar or open another folder.{:else}Create a collection or open one from your repository.<br />Send requests without leaving your machine.{/if}</p><div>{#if welcomeCollection}<Button size="lg" onclick={() => beginCreate('request')} disabled={loading || welcomeCollection.readOnly}><Plus aria-hidden="true" />New request</Button>{:else}<Button size="lg" onclick={() => beginCreate('collection')} disabled={loading}><FolderPlus aria-hidden="true" />New collection</Button><Button variant="outline" size="lg" onclick={() => open()} disabled={loading}><FolderOpen aria-hidden="true" />Open collection</Button><Button variant="ghost" size="lg" onclick={() => open(true)} disabled={loading}>Try example</Button>{/if}</div>{#if error}<div class="error" role="alert">{error}</div>{/if}</div>
+      {/if}
+      {#if GitChanges}
+        {#each gitTabs as tab (tab.id)}
+          <GitChanges id={tab.id} collection={tab.collection} filesVersion={tab.filesVersion}
+            hasDraft={(paths) => gitHasDraft(tab.collection.root, paths)} hidden={tab.collection.root !== activeGitRoot}
+            blocked={busy || loading || chunkLoading || (gitOperating && !tab.operating)}
+            bind:operating={tab.operating} bind:this={tab.panel} />
+        {/each}
       {/if}
       </div>
     </main>
@@ -1277,10 +1333,6 @@
 </div>
 
 {#if defaultsTarget && DefaultsEditor}<DefaultsEditor bind:this={defaultsEditor} collection={defaultsTarget.collection} folder={defaultsTarget.folder} onclose={closeDefaults} onsaved={() => defaultsVersion++} />{/if}
-{#if gitTarget && GitChanges}
-  {#key gitTarget.root}<GitChanges bind:this={gitPanel} collection={gitTarget} filesVersion={gitFilesVersion} hasDraft={gitHasDraft} onclose={closeGit} />{/key}
-{/if}
-
 {#if creation}
   <Dialog.Root open={true} onOpenChange={(open) => { if (!open && !loading) cancelCreation(); }}><Dialog.Content class="modal creation-modal shadcn-modal motion-reduce:animate-none" showCloseButton={false} aria-label={titles[creation]} onInteractOutside={(event) => event.preventDefault()} onEscapeKeydown={(event) => { if (loading) event.preventDefault(); }} onOpenAutoFocus={(event) => { event.preventDefault(); document.querySelector<HTMLElement>('.shadcn-modal [autofocus]')?.focus(); }} onCloseAutoFocus={(event) => { event.preventDefault(); if (manageWorkspacesOpen) restoreWorkspaceManagerFocus(); else void restoreTreeFocus(creationReturnFocus); }}>
     <div class="modal-heading"><Dialog.Title>{titles[creation]}</Dialog.Title><Button variant="ghost" size="icon-sm" aria-label="Close" onclick={cancelCreation} disabled={loading}><X aria-hidden="true" /></Button></div>

@@ -92,8 +92,12 @@ pub(crate) enum Action {
         file_revision: String,
         replace_partial: bool,
     },
+    StagePaths {
+        paths: Vec<String>,
+        revision: String,
+    },
     Unstage {
-        path: String,
+        paths: Vec<String>,
         revision: String,
     },
     Commit {
@@ -130,7 +134,7 @@ struct Entry {
     index: char,
     worktree: char,
     conflict: bool,
-    supported: bool,
+    blocked_reason: Option<&'static str>,
 }
 
 #[derive(Debug, Serialize)]
@@ -154,6 +158,7 @@ pub(crate) enum Reply {
         oid: Option<String>,
         branch: Option<String>,
         issue: Option<Error>,
+        selection_stable: bool,
     },
 }
 

@@ -104,7 +104,7 @@ impl Fixture {
     async fn unstage(&self, status: Status, path: &str) -> Status {
         mutation(
             self.call(Action::Unstage {
-                path: path.into(),
+                paths: vec![path.into()],
                 revision: status.revision,
             })
             .await
@@ -218,6 +218,205 @@ async fn status_and_diffs_cover_unborn_text_binary_and_deletion() {
     assert!(text.contains("-example text\n"));
     assert_eq!(fixture.index(), original);
     assert!(!fixture.collection.join("one.yml").exists());
+}
+
+#[tokio::test]
+async fn stage_paths_adds_the_exact_batch_and_keeps_existing_index_versions() {
+    let fixture = Fixture::new();
+    for name in ["modified.yml", "deleted.yml", "partial.yml"] {
+        fixture.write(name, b"original\n");
+    }
+    fixture.git(&["add", "--", "collection"]);
+    fixture.git(&["commit", "-qm", "initial"]);
+    fixture.write("modified.yml", b"new content\n");
+    fs::remove_file(fixture.collection.join("deleted.yml")).unwrap();
+    fixture.write("partial.yml", b"index version\n");
+    fixture.git(&["add", "--", "collection/partial.yml"]);
+    fixture.write("partial.yml", b"worktree version\n");
+    fixture.write("unselected.yml", b"unselected\n");
+    fs::write(fixture.root.join("outside.yml"), b"outside\n").unwrap();
+    fixture.git(&["add", "--", "outside.yml"]);
+    let name = if cfg!(windows) {
+        "-with space-é.yml"
+    } else {
+        "-with space-é\"\\\tline\nbreak.yml"
+    };
+    fixture.write(name, b"added in the batch\n");
+    #[cfg(unix)]
+    std::os::unix::fs::symlink("modified.yml", fixture.collection.join("link.yml")).unwrap();
+
+    let status = fixture.status().await;
+    #[cfg(unix)]
+    assert!(
+        entry(&status, "link.yml")
+            .blocked_reason
+            .unwrap()
+            .contains("symbolic link")
+    );
+    let original = fixture.index();
+    let rejected = fixture
+        .call(Action::StagePaths {
+            paths: vec![name.into(), "partial.yml".into()],
+            revision: status.revision.clone(),
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(rejected.code, "stale-state");
+    assert_eq!(fixture.index(), original);
+
+    let reply = fixture
+        .call(Action::StagePaths {
+            paths: [name, "modified.yml", "deleted.yml"]
+                .map(str::to_owned)
+                .into(),
+            revision: status.revision,
+        })
+        .await
+        .unwrap();
+    assert!(matches!(
+        reply,
+        Reply::Mutation {
+            selection_stable: true,
+            ..
+        }
+    ));
+    let status = mutation(reply);
+    assert_eq!(entry(&status, name).index, 'A');
+    assert_eq!(entry(&status, "modified.yml").index, 'M');
+    assert_eq!(entry(&status, "deleted.yml").index, 'D');
+    assert_eq!(entry(&status, "unselected.yml").index, '.');
+    assert_eq!(entry(&status, "partial.yml").worktree, 'M');
+    assert_eq!(status.outside_staged_count, 1);
+    assert_eq!(
+        fixture.git(&["show", ":collection/partial.yml"]),
+        b"index version\n"
+    );
+    assert_eq!(
+        fixture.git(&["show", &format!(":collection/{name}")]),
+        b"added in the batch\n"
+    );
+    assert_eq!(fixture.git(&["show", ":outside.yml"]), b"outside\n");
+
+    let status = mutation(
+        fixture
+            .call(Action::Unstage {
+                paths: [name, "modified.yml", "deleted.yml", "partial.yml"]
+                    .map(str::to_owned)
+                    .into(),
+                revision: status.revision,
+            })
+            .await
+            .unwrap(),
+    );
+    for (path, worktree) in [
+        (name, '?'),
+        ("modified.yml", 'M'),
+        ("deleted.yml", 'D'),
+        ("partial.yml", 'M'),
+    ] {
+        assert_eq!(
+            (entry(&status, path).index, entry(&status, path).worktree),
+            ('.', worktree)
+        );
+    }
+    assert_eq!(
+        fs::read(fixture.collection.join(name)).unwrap(),
+        b"added in the batch\n"
+    );
+    assert_eq!(
+        fs::read(fixture.collection.join("modified.yml")).unwrap(),
+        b"new content\n"
+    );
+    assert_eq!(
+        fs::read(fixture.collection.join("partial.yml")).unwrap(),
+        b"worktree version\n"
+    );
+    assert!(!fixture.collection.join("deleted.yml").exists());
+    assert_eq!(
+        fixture.git(&["diff", "--cached", "--name-only"]),
+        b"outside.yml\n"
+    );
+    assert_eq!(fixture.git(&["show", ":outside.yml"]), b"outside\n");
+    #[cfg(unix)]
+    {
+        fixture.git(&["add", "--", "collection/link.yml"]);
+        let status = fixture.status().await;
+        let link = entry(&status, "link.yml");
+        assert_eq!(link.index, 'A');
+        assert!(link.blocked_reason.unwrap().contains("symbolic link"));
+    }
+}
+
+#[tokio::test]
+async fn unstage_paths_before_the_first_commit_keeps_every_file_on_disk() {
+    let fixture = Fixture::new();
+    fixture.write("one", b"new one\n");
+    fixture.write("two", b"new two\n");
+    fixture.git(&["add", "--", "collection"]);
+    let status = fixture.status().await;
+    let status = mutation(
+        fixture
+            .call(Action::Unstage {
+                paths: vec!["one".into(), "two".into()],
+                revision: status.revision,
+            })
+            .await
+            .unwrap(),
+    );
+    assert!(status.head_oid.is_none());
+    assert!(
+        status
+            .entries
+            .iter()
+            .all(|entry| entry.index == '.' && entry.worktree == '?')
+    );
+    assert!(fixture.git(&["ls-files"]).is_empty());
+    assert_eq!(
+        fs::read(fixture.collection.join("one")).unwrap(),
+        b"new one\n"
+    );
+    assert_eq!(
+        fs::read(fixture.collection.join("two")).unwrap(),
+        b"new two\n"
+    );
+}
+
+#[tokio::test]
+async fn unstage_rejects_restoring_a_file_over_an_unselected_staged_child() {
+    let fixture = Fixture::new();
+    fixture.write("node", b"original file\n");
+    fixture.git(&["add", "--", "collection"]);
+    fixture.git(&["commit", "-qm", "initial"]);
+    let node = fixture.collection.join("node");
+    fs::remove_file(&node).unwrap();
+    fs::create_dir(&node).unwrap();
+    fixture.write("node/child", b"staged child\n");
+    fixture.git(&["add", "-A", "--", "collection"]);
+    fs::remove_file(node.join("child")).unwrap();
+    fs::remove_dir(&node).unwrap();
+    let status = fixture.status().await;
+    let original = fixture.index();
+
+    let reply = fixture
+        .call(Action::Unstage {
+            paths: vec!["node".into()],
+            revision: status.revision,
+        })
+        .await
+        .unwrap();
+    assert!(matches!(
+        reply,
+        Reply::Mutation {
+            effect: Effect::NotApplied,
+            ..
+        }
+    ));
+    assert_eq!(fixture.index(), original);
+    assert_eq!(
+        fixture.git(&["show", ":collection/node/child"]),
+        b"staged child\n"
+    );
+    assert!(!node.exists());
 }
 
 #[tokio::test]
@@ -708,6 +907,53 @@ async fn process_timeout_output_limit_and_sanitized_failure() {
 
 #[cfg(unix)]
 #[tokio::test]
+async fn stage_paths_rejects_any_disk_change_before_publishing_the_batch() {
+    let fixture = Fixture::new();
+    fixture.write("base.yml", b"original\n");
+    fixture.git(&["add", "--", "collection/base.yml"]);
+    fixture.git(&["commit", "-qm", "initial"]);
+    fixture.write("one.yml", b"selected one\n");
+    fixture.write("two.yml", b"selected two\n");
+    let status = fixture.status().await;
+    let original = fixture.index();
+    let executable = wrapper(
+        &fixture,
+        r#"for arg in "$@"; do
+            if [ "$arg" = add ]; then
+                "$real" "$@" || exit $?
+                printf 'edited outside the panel\n' > collection/two.yml
+                exit 0
+            fi
+        done"#,
+    );
+    let reply = run(
+        &fixture.collection,
+        Action::StagePaths {
+            paths: vec!["one.yml".into(), "two.yml".into()],
+            revision: status.revision,
+        },
+        CancellationToken::new(),
+        &executable,
+    )
+    .await
+    .unwrap();
+    assert!(matches!(
+        reply,
+        Reply::Mutation {
+            effect: Effect::NotApplied,
+            issue: Some(Error {
+                code: "stale-state",
+                ..
+            }),
+            ..
+        }
+    ));
+    assert_eq!(fixture.index(), original);
+    assert!(!fixture.root.join(".git/index.lock").exists());
+}
+
+#[cfg(unix)]
+#[tokio::test]
 async fn concurrent_staging_between_revalidation_and_publication_preserves_external_index() {
     let fixture = Fixture::new();
     fixture.write("one", b"reviewed bytes\n");
@@ -803,8 +1049,13 @@ async fn global_filter_configuration_allows_ordinary_paths_without_running_the_f
     .unwrap() else {
         panic!("expected status");
     };
-    assert!(entry(&status, "ordinary").supported);
-    assert!(!entry(&status, "asset").supported);
+    assert!(entry(&status, "ordinary").blocked_reason.is_none());
+    assert!(
+        entry(&status, "asset")
+            .blocked_reason
+            .unwrap()
+            .contains("Git filter")
+    );
     assert!(!fixture.root.join("SHOULD_NOT_EXIST").exists());
 }
 
@@ -834,4 +1085,68 @@ async fn changing_head_after_review_requires_refresh_even_with_the_same_index() 
         fs::read(fixture.collection.join("one")).unwrap(),
         b"reviewed change\n"
     );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn only_a_confirmed_index_update_keeps_the_commit_selection() {
+    let fixture = Fixture::new();
+    fixture.write("already", b"first\n");
+    fixture.write("one", b"selected\n");
+    fixture.write("other", b"external\n");
+    let first = fixture.prepare("already", false).await.unwrap();
+    assert!(matches!(
+        first,
+        Reply::Mutation {
+            selection_stable: true,
+            ..
+        }
+    ));
+    let status = mutation(first);
+    let Reply::Diff {
+        file_revision: Some(file_revision),
+        ..
+    } = fixture.diff(&status, "one", Side::Worktree).await.unwrap()
+    else {
+        panic!("expected a working tree revision");
+    };
+    let executable = wrapper(
+        &fixture,
+        r#"for arg in "$@"; do
+            if [ "$arg" = add ]; then
+                "$real" "$@" || exit $?
+                : > .git/selection-stage-started
+                exit 0
+            fi
+            if [ "$arg" = config ] && [ -f .git/selection-stage-started ] &&
+                "$real" ls-files --error-unmatch -- collection/one >/dev/null 2>&1; then
+                "$real" add -- collection/other || exit $?
+                rm .git/selection-stage-started
+            fi
+        done"#,
+    );
+    let result = run(
+        &fixture.collection,
+        Action::Stage {
+            path: "one".into(),
+            revision: status.revision,
+            file_revision,
+            replace_partial: false,
+        },
+        CancellationToken::new(),
+        &executable,
+    )
+    .await
+    .unwrap();
+    assert!(matches!(
+        result,
+        Reply::Mutation {
+            effect: Effect::Applied,
+            selection_stable: false,
+            ..
+        }
+    ));
+    let status = mutation(result);
+    assert_eq!(entry(&status, "one").index, 'A');
+    assert_eq!(entry(&status, "other").index, 'A');
 }

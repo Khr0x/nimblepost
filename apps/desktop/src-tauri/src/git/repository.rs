@@ -11,6 +11,9 @@ use std::{
 };
 
 const MAX_ENTRIES: usize = 10_000;
+const SYMBOLIC_LINK: &str =
+    "This path uses a symbolic link. Git Changes only supports regular files.";
+const REGULAR_FILE_ONLY: &str = "Git Changes only supports regular files.";
 const DIFF_ARGS: &[&str] = &[
     "--no-ext-diff",
     "--no-textconv",
@@ -123,26 +126,27 @@ impl<'a> Repo<'a> {
                 }
                 self.change_index(
                     snapshot,
-                    &path,
-                    &["add", "--all", "--", &relative],
-                    Some(&file_revision),
+                    &[(&["add", "--all", "--", &relative], None)],
+                    async |fresh, _| {
+                        let entry = fresh.entry(&path).ok_or_else(Error::stale)?;
+                        let (relative, mode) = self.path(entry)?;
+                        if self.file_revision(&relative, mode).await? != file_revision {
+                            return Err(Error::stale());
+                        }
+                        Ok(())
+                    },
                 )
                 .await
             }
-            Action::Unstage { path, revision } => {
+            Action::StagePaths { paths, revision } => {
                 snapshot.status.check(&revision)?;
                 snapshot.status.ensure_mutable()?;
-                let entry = snapshot.status.entry(&path).ok_or_else(Error::stale)?;
-                if entry.index == '.' {
-                    return Err(Error::stale());
-                }
-                let (relative, _) = self.path(entry)?;
-                let args = if snapshot.status.head_oid.is_some() {
-                    vec!["restore", "--staged", "--source=HEAD", "--", &relative]
-                } else {
-                    vec!["rm", "--cached", "-f", "--", &relative]
-                };
-                self.change_index(snapshot, &path, &args, None).await
+                self.stage_paths(snapshot, &paths).await
+            }
+            Action::Unstage { paths, revision } => {
+                snapshot.status.check(&revision)?;
+                snapshot.status.ensure_mutable()?;
+                self.unstage_paths(snapshot, &paths).await
             }
             Action::Commit {
                 paths,
@@ -279,6 +283,22 @@ impl<'a> Repo<'a> {
             return Err(Error::stale());
         }
         let mut status = parse_status(&raw, &self.prefix)?;
+        for entry in status
+            .entries
+            .iter_mut()
+            .filter(|entry| entry.blocked_reason.is_none())
+        {
+            if matches!(entry.worktree, '?' | 'D') || entry.index == 'D' {
+                entry.blocked_reason = match self.path(entry) {
+                    Ok((_, None)) if entry.worktree == '?' => {
+                        Some("This file is no longer on disk. Refresh Git status.")
+                    }
+                    Ok(_) => None,
+                    Err(error) if error.code == "invalid-path" => Some(error.message),
+                    Err(error) => return Err(error),
+                };
+            }
+        }
         if has_filters {
             self.mark_filtered_paths(&mut status).await?;
         }
@@ -333,7 +353,11 @@ impl<'a> Repo<'a> {
 
     async fn mark_filtered_paths(&self, status: &mut Status) -> Result<()> {
         let mut input = Vec::new();
-        for entry in status.entries.iter().filter(|entry| entry.supported) {
+        for entry in status
+            .entries
+            .iter()
+            .filter(|entry| entry.blocked_reason.is_none())
+        {
             input.extend_from_slice(self.prefix.as_bytes());
             input.extend_from_slice(entry.path.as_bytes());
             input.push(0);
@@ -360,13 +384,18 @@ impl<'a> Repo<'a> {
             }
         }
         for entry in &mut status.entries {
-            entry.supported &= !blocked.contains(&entry.path);
+            if blocked.contains(&entry.path) {
+                entry.blocked_reason = Some("This file uses a Git filter. Manage it in Git.");
+            }
         }
         Ok(())
     }
 
     fn path(&self, entry: &Entry) -> Result<(String, Option<u32>)> {
-        if !entry.supported || !regular_relative(&entry.path) {
+        if let Some(reason) = entry.blocked_reason {
+            return Err(Error::new("invalid-path", reason));
+        }
+        if !regular_relative(&entry.path) {
             return Err(Error::invalid_path());
         }
         let relative = format!("{}{}", self.prefix, entry.path);
@@ -378,11 +407,16 @@ impl<'a> Repo<'a> {
                 return Ok((relative, None));
             };
             if is_link(&item) {
-                return Err(Error::invalid_path());
+                let reason = if item.file_type().is_symlink() {
+                    SYMBOLIC_LINK
+                } else {
+                    "Git Changes only supports regular files. This path uses a reparse point."
+                };
+                return Err(Error::new("invalid-path", reason));
             }
             if parts.peek().is_none() {
                 if !item.is_file() {
-                    return Err(Error::invalid_path());
+                    return Err(Error::new("invalid-path", REGULAR_FILE_ONLY));
                 }
                 #[cfg(unix)]
                 let mode = std::os::unix::fs::PermissionsExt::mode(&item.permissions());
@@ -390,8 +424,14 @@ impl<'a> Repo<'a> {
                 let mode = u32::from(item.permissions().readonly());
                 return Ok((relative, Some(mode)));
             }
-            if !item.is_dir() || present(&absolute.join(".git")) {
-                return Err(Error::invalid_path());
+            if !item.is_dir() {
+                return Err(Error::new("invalid-path", REGULAR_FILE_ONLY));
+            }
+            if present(&absolute.join(".git")) {
+                return Err(Error::new(
+                    "invalid-path",
+                    "This file belongs to a nested Git repository.",
+                ));
             }
         }
         Err(Error::invalid_path())
@@ -455,12 +495,159 @@ impl<'a> Repo<'a> {
         })
     }
 
+    async fn stage_paths(&self, before: Snapshot, paths: &[String]) -> Result<Reply> {
+        let selected = unique_paths(paths)?;
+        let unstaged = |entry: &Entry| entry.index == '.' && entry.worktree != '.';
+        let files = self.index_paths(&before.status, &selected, unstaged)?;
+        let observed = self.hash_worktree_files(&files).await?;
+        let input = pathspec(files.iter().map(|(path, _)| path.as_str()));
+        self.change_index(
+            before,
+            &[(
+                &[
+                    "add",
+                    "--all",
+                    "--pathspec-from-file=-",
+                    "--pathspec-file-nul",
+                ],
+                Some(&input),
+            )],
+            async |fresh, _| {
+                let current = self.index_paths(fresh, &selected, unstaged)?;
+                if current != files || self.hash_worktree_files(&current).await? != observed {
+                    return Err(Error::stale());
+                }
+                Ok(())
+            },
+        )
+        .await
+    }
+
+    async fn unstage_paths(&self, before: Snapshot, paths: &[String]) -> Result<Reply> {
+        let selected = unique_paths(paths)?;
+        let files = self.index_paths(&before.status, &selected, |entry| entry.index != '.')?;
+        let added: BTreeSet<_> = before
+            .status
+            .entries
+            .iter()
+            .filter(|entry| entry.index == 'A')
+            .map(|entry| entry.path.as_str())
+            .collect();
+        let (remove, restore): (Vec<_>, Vec<_>) = files
+            .iter()
+            .map(|(path, _)| path.as_str())
+            .partition(|path| added.contains(&path[self.prefix.len()..]));
+        let remove = pathspec(remove);
+        let restore = pathspec(restore);
+        let head = before.status.head_oid.clone();
+        let mut commands: Vec<(&[&str], Option<&[u8]>)> = Vec::new();
+        if !remove.is_empty() {
+            commands.push((
+                &[
+                    "rm",
+                    "--cached",
+                    "-f",
+                    "--quiet",
+                    "--pathspec-from-file=-",
+                    "--pathspec-file-nul",
+                ],
+                Some(&remove),
+            ));
+        }
+        let restore_args = [
+            "restore",
+            "--staged",
+            "--source",
+            head.as_deref().unwrap_or("HEAD"),
+            "--pathspec-from-file=-",
+            "--pathspec-file-nul",
+        ];
+        if !restore.is_empty() {
+            commands.push((&restore_args, Some(&restore)));
+        }
+        self.change_index(before, &commands, async |fresh, index| {
+            // Git pathspecs can also match children when a file replaces a directory.
+            let expected: BTreeSet<_> = fresh.entries.iter()
+                .filter(|entry| entry.index != '.' && !selected.contains(entry.path.as_str()))
+                .map(|entry| entry.path.as_str())
+                .collect();
+            let mut args = vec!["diff", "--cached", "--name-only", "-z", "--no-renames",
+                "--ignore-submodules=all", "--no-ext-diff", "--no-textconv"];
+            args.extend(head.as_deref());
+            let output = self.git.run(&args, None, Some(index)).await?.checked()?;
+            let mut actual = BTreeSet::new();
+            let mut outside = 0;
+            for path in utf8(&output)?.split_terminator('\0') {
+                if let Some(path) = path.strip_prefix(&self.prefix) {
+                    actual.insert(path);
+                } else {
+                    outside += 1;
+                }
+            }
+            if actual != expected || outside != fresh.outside_staged_count {
+                return Err(Error::new("invalid-input", "These paths overlap other prepared changes. Review them together before unstaging."));
+            }
+            Ok(())
+        }).await
+    }
+
+    fn index_paths(
+        &self,
+        status: &Status,
+        selected: &BTreeSet<&str>,
+        eligible: impl Fn(&Entry) -> bool,
+    ) -> Result<Vec<(String, Option<u32>)>> {
+        let mut files = Vec::with_capacity(selected.len());
+        for entry in &status.entries {
+            if selected.contains(entry.path.as_str()) {
+                if entry.conflict || !eligible(entry) {
+                    return Err(Error::stale());
+                }
+                files.push(self.path(entry)?);
+            }
+        }
+        if files.len() != selected.len() {
+            return Err(Error::stale());
+        }
+        Ok(files)
+    }
+
+    async fn hash_worktree_files(&self, paths: &[(String, Option<u32>)]) -> Result<Vec<u8>> {
+        let mut input = Vec::new();
+        for (relative, mode) in paths {
+            if mode.is_some() {
+                // hash-object accepts Git's C-quoted paths, including literal newlines.
+                input.push(b'"');
+                for byte in relative.bytes() {
+                    match byte {
+                        b'\\' => input.extend_from_slice(br"\\"),
+                        b'"' => input.extend_from_slice(br#"\""#),
+                        b'\n' => input.extend_from_slice(br"\n"),
+                        b'\r' => input.extend_from_slice(br"\r"),
+                        _ => input.push(byte),
+                    }
+                }
+                input.extend_from_slice(b"\"\n");
+            }
+        }
+        if input.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.git
+            .run(
+                &["hash-object", "--no-filters", "--stdin-paths"],
+                Some(&input),
+                None,
+            )
+            .await?
+            .checked()
+    }
+
     async fn change_index(
         &self,
         before: Snapshot,
-        path: &str,
-        args: &[&str],
-        file_revision: Option<&str>,
+        commands: &[(&[&str], Option<&[u8]>)],
+        verify: impl AsyncFnOnce(&Status, &Path) -> Result<()>,
     ) -> Result<Reply> {
         let applied = async {
             let temporary = tempfile::tempdir().map_err(|_| Error::io())?;
@@ -470,20 +657,17 @@ impl<'a> Repo<'a> {
                     .await
                     .map_err(|_| Error::io())?;
             }
-            self.git.run(args, None, Some(&index)).await?.checked()?;
+            for (args, input) in commands {
+                self.git.run(args, *input, Some(&index)).await?.checked()?;
+            }
             let fresh = self.snapshot().await?;
             fresh.status.check(&before.status.revision)?;
             fresh.status.ensure_mutable()?;
-            if let Some(expected) = file_revision {
-                let entry = fresh.status.entry(path).ok_or_else(Error::stale)?;
-                let (relative, mode) = self.path(entry)?;
-                if self.file_revision(&relative, mode).await? != expected {
-                    return Err(Error::stale());
-                }
-            }
+            verify(&fresh.status, &index).await?;
             let new_index = read_index_file(&index)?.ok_or_else(Error::io)?;
             self.git.bound(std::future::ready(Ok(()))).await?;
-            self.publish_index(before.index.as_deref(), &new_index)
+            self.publish_index(before.index.as_deref(), &new_index)?;
+            Ok(new_index)
         }
         .await;
         let git = self.git.reconcile();
@@ -494,6 +678,16 @@ impl<'a> Repo<'a> {
         .snapshot()
         .await
         .ok();
+        let selection_stable =
+            applied
+                .as_ref()
+                .ok()
+                .zip(status.as_ref())
+                .is_some_and(|(published, current)| {
+                    current.index.as_ref() == Some(published)
+                        && current.status.branch == before.status.branch
+                        && current.status.head_oid == before.status.head_oid
+                });
         Ok(Reply::Mutation {
             status: status.map(|snapshot| snapshot.status),
             effect: if applied.is_ok() {
@@ -504,6 +698,7 @@ impl<'a> Repo<'a> {
             oid: None,
             branch: None,
             issue: applied.err(),
+            selection_stable,
         })
     }
 
@@ -729,8 +924,26 @@ impl<'a> Repo<'a> {
             oid: (effect == Effect::Applied).then(|| candidate.to_owned()),
             branch: Some(branch.to_owned()),
             issue: applied.err(),
+            selection_stable: false,
         })
     }
+}
+
+fn unique_paths(paths: &[String]) -> Result<BTreeSet<&str>> {
+    let selected: BTreeSet<_> = paths.iter().map(String::as_str).collect();
+    if selected.is_empty() || selected.len() != paths.len() || selected.len() > MAX_ENTRIES {
+        return Err(Error::new("invalid-input", "Select unique files."));
+    }
+    Ok(selected)
+}
+
+fn pathspec<'a>(paths: impl IntoIterator<Item = &'a str>) -> Vec<u8> {
+    let mut input = Vec::new();
+    for relative in paths {
+        input.extend_from_slice(relative.as_bytes());
+        input.push(0);
+    }
+    input
 }
 
 fn parse_status(raw: &[u8], prefix: &str) -> Result<Status> {
@@ -757,10 +970,10 @@ fn parse_status(raw: &[u8], prefix: &str) -> Result<Status> {
             if count > MAX_ENTRIES {
                 return Err(Error::limit());
             }
-            let (index, worktree, path, conflict, modes) = if let Some(path) =
+            let (index, worktree, path, conflict, blocked_reason) = if let Some(path) =
                 record.strip_prefix("? ")
             {
-                ('.', '?', path, false, true)
+                ('.', '?', path, false, None)
             } else {
                 let conflict = record.starts_with("u ");
                 let columns: Vec<_> = record.splitn(if conflict { 11 } else { 9 }, ' ').collect();
@@ -773,15 +986,24 @@ fn parse_status(raw: &[u8], prefix: &str) -> Result<Status> {
                 }
                 let code = columns[1].as_bytes();
                 let modes = &columns[3..if conflict { 7 } else { 6 }];
-                let regular = modes
+                let blocked_reason = if modes.contains(&"120000") {
+                    Some(SYMBOLIC_LINK)
+                } else if modes.contains(&"160000") {
+                    Some("Manage submodule changes in Git.")
+                } else if modes
                     .iter()
-                    .all(|mode| matches!(*mode, "000000" | "100644" | "100755"));
+                    .any(|mode| !matches!(*mode, "000000" | "100644" | "100755"))
+                {
+                    Some(REGULAR_FILE_ONLY)
+                } else {
+                    None
+                };
                 (
                     char::from(code[0]),
                     char::from(code[1]),
                     columns[columns.len() - 1],
                     conflict,
-                    regular,
+                    blocked_reason,
                 )
             };
             if conflict {
@@ -796,7 +1018,9 @@ fn parse_status(raw: &[u8], prefix: &str) -> Result<Status> {
                     index,
                     worktree,
                     conflict,
-                    supported: modes && regular_relative(path),
+                    blocked_reason: blocked_reason.or_else(|| {
+                        (!regular_relative(path)).then_some(Error::invalid_path().message)
+                    }),
                 });
             } else if index != '.' {
                 status.outside_staged_count += 1;

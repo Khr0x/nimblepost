@@ -32,7 +32,7 @@ export interface CreateRequestInput { name: string; fileName?: string; method?: 
 export interface RenameRequestInput { revision: number; name: string; fileName: string }
 export interface RequestUpdate { collection: Collection; path: string; request: RequestInfo }
 export interface GitIssue { code: string; message: string }
-export interface GitEntry { path: string; index: string; worktree: string; conflict: boolean; supported: boolean }
+export interface GitEntry { path: string; index: string; worktree: string; conflict: boolean; blockedReason: string | null }
 export interface GitStatus {
   repoRoot: string; branch: string | null; headOid: string | null; revision: string;
   entries: GitEntry[]; outsideStagedCount: number; mutationBlock: GitIssue | null; commitBlock: GitIssue | null;
@@ -42,12 +42,13 @@ export type GitAction =
   | { kind: 'status' }
   | { kind: 'diff'; path: string; side: GitSide; revision: string }
   | { kind: 'stage'; path: string; revision: string; fileRevision: string; replacePartial: boolean }
-  | { kind: 'unstage'; path: string; revision: string }
+  | { kind: 'stagePaths'; paths: string[]; revision: string }
+  | { kind: 'unstage'; paths: string[]; revision: string }
   | { kind: 'commit'; paths: string[]; message: string; revision: string };
 export type GitReply =
   | { kind: 'status'; status: GitStatus }
   | { kind: 'diff'; text: string | null; binary: boolean; fileRevision: string | null }
-  | { kind: 'mutation'; status: GitStatus | null; effect: 'applied' | 'notApplied' | 'unknown'; oid: string | null; branch: string | null; issue: GitIssue | null };
+  | { kind: 'mutation'; status: GitStatus | null; effect: 'applied' | 'notApplied' | 'unknown'; oid: string | null; branch: string | null; issue: GitIssue | null; selectionStable: boolean };
 
 let gitOperationId = 0;
 export function nextGitOperationId() { return ++gitOperationId; }
